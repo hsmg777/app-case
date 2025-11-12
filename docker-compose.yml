@@ -1,0 +1,77 @@
+services:
+  case-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: case-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - case-network
+    depends_on:
+      - case-db
+
+  case-vite:
+    image: node:20
+    container_name: case-vite
+    working_dir: /var/www/html
+    command: sh -c "npm ci && npm run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - case-network
+    depends_on:
+      - case-app
+
+  case-nginx:
+    image: nginx:latest
+    container_name: case-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./:/var/www/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - case-network
+    depends_on:
+      - case-app
+
+  case-db:
+    image: postgres:16
+    container_name: case-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: case_user
+      POSTGRES_PASSWORD: case_pass
+      POSTGRES_DB: case_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - case_data:/var/lib/postgresql/data
+    networks:
+      - case-network
+
+  case-pgadmin:
+    image: dpage/pgadmin4
+    container_name: case-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@case.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    networks:
+      - case-network
+    depends_on:
+      - case-db
+
+networks:
+  case-network:
+
+volumes:
+  case_data:
