@@ -2,96 +2,82 @@
 
 namespace App\Services;
 
-use App\Repositories\InventoryRepository;
+use App\Models\Inventory;
 
 class InventoryService
 {
-    protected $repo;
-
-    public function __construct(InventoryRepository $repo)
-    {
-        $this->repo = $repo;
-    }
-
-    // Listar todo el inventario (con relaciones)
     public function getAll()
     {
-        return $this->repo->all();
+        return Inventory::with(['producto', 'bodega', 'percha'])
+            ->orderBy('id', 'desc')
+            ->get();
     }
 
-    // Obtener un registro por ID
     public function getById($id)
     {
-        return $this->repo->find($id);
+        return Inventory::with(['producto', 'bodega', 'percha'])
+            ->findOrFail($id);
     }
 
-    // Obtener inventario por producto
     public function getByProduct($productoId)
     {
-        return $this->repo->getByProduct($productoId);
+        return Inventory::with(['producto', 'bodega', 'percha'])
+            ->where('producto_id', $productoId)
+            ->get();
     }
 
-    // Obtener inventario por bodega
     public function getByBodega($bodegaId)
     {
-        return $this->repo->getByBodega($bodegaId);
+        return Inventory::with(['producto', 'bodega', 'percha'])
+            ->where('bodega_id', $bodegaId)
+            ->get();
     }
 
-    // Obtener inventario por producto+bodega+percha (combinación única)
-    public function getByLocation($productoId, $bodegaId, $perchaId)
+    public function create($data)
     {
-        return $this->repo->getByLocation($productoId, $bodegaId, $perchaId);
+        return Inventory::create($data);
     }
 
-    // Crear inventario (solo si no existe)
-    public function create(array $data)
+    public function update($id, $data)
     {
-        return $this->repo->create($data);
+        $inv = Inventory::findOrFail($id);
+        $inv->update($data);
+        return $inv;
     }
 
-    // Actualizar inventario
-    public function update($id, array $data)
-    {
-        $inventory = $this->repo->find($id);
-        return $this->repo->update($inventory, $data);
-    }
-
-    // Eliminar inventario
     public function delete($id)
     {
-        $inventory = $this->repo->find($id);
-        return $this->repo->delete($inventory);
+        Inventory::findOrFail($id)->delete();
+        return true;
     }
 
-    // Aumentar stock
-    public function increaseStock($productoId, $bodegaId, $perchaId, int $cantidad)
+    public function increaseStock($productoId, $bodegaId, $perchaId, $cantidad)
     {
-        $inventory = $this->repo->getByLocation($productoId, $bodegaId, $perchaId);
+        $inv = Inventory::where('producto_id', $productoId)
+            ->where('bodega_id', $bodegaId)
+            ->where('percha_id', $perchaId)
+            ->firstOrFail();
 
-        if (!$inventory) {
-            // Si no existe ese inventario, creamos la fila
-            $inventory = $this->repo->create([
-                'producto_id' => $productoId,
-                'bodega_id'   => $bodegaId,
-                'percha_id'   => $perchaId,
-                'stock_actual' => 0,
-                'stock_reservado' => 0
-            ]);
-        }
+        $inv->stock_actual += $cantidad;
+        $inv->save();
 
-        return $this->repo->increaseStock($inventory, $cantidad);
+        return $inv;
     }
 
-    // Reducir stock
-    public function decreaseStock($productoId, $bodegaId, $perchaId, int $cantidad)
+    public function decreaseStock($productoId, $bodegaId, $perchaId, $cantidad)
     {
-        $inventory = $this->repo->getByLocation($productoId, $bodegaId, $perchaId);
+        $inv = Inventory::where('producto_id', $productoId)
+            ->where('bodega_id', $bodegaId)
+            ->where('percha_id', $perchaId)
+            ->firstOrFail();
 
-        if (!$inventory) {
-            throw new \Exception("No existe inventario para esta ubicación.");
+        if ($inv->stock_actual < $cantidad) {
+            throw new \Exception("Stock insuficiente");
         }
 
-        // Aunque el sistema permita vender con stock 0, el inventario sí debe registrar valores negativos.
-        return $this->repo->decreaseStock($inventory, $cantidad);
+        $inv->stock_actual -= $cantidad;
+        $inv->save();
+
+        return $inv;
     }
 }

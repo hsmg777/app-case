@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Store;
 
+use App\Http\Controllers\Controller;
 use App\Services\Store\BodegaService;
 use Illuminate\Http\Request;
 
@@ -13,6 +14,22 @@ class BodegaController extends Controller
     {
         $this->service = $service;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | VISTA PRINCIPAL DE BODEGAS + PERCHAS
+    |--------------------------------------------------------------------------
+    */
+    public function viewIndex()
+    {
+        return view('inventario.bodegas_perchas.index');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | API JSON
+    |--------------------------------------------------------------------------
+    */
 
     public function index()
     {
@@ -30,7 +47,7 @@ class BodegaController extends Controller
             'nombre' => 'required|string|max:255',
             'descripcion' => 'nullable|string',
             'ubicacion' => 'nullable|string|max:255',
-            'tipo' => 'required|string|max:50', // local, externa, sucursal, etc.
+            'tipo' => 'required|string|max:50',
         ]);
 
         return response()->json($this->service->create($data), 201);

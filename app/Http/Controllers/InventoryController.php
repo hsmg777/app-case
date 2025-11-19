@@ -27,7 +27,7 @@ class InventoryController extends Controller
 
     public function viewStock()
     {
-        return view('inventario.stock');
+        return view('inventario.stock.stock');
     }
 
 
@@ -126,4 +126,6 @@ class InventoryController extends Controller
             )
         );
     }
+
+    
 }

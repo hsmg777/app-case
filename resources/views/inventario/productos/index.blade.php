@@ -1,8 +1,20 @@
 <x-app-layout>
     <x-slot name="header">
-        <h2 class="font-semibold text-2xl text-blue-900 leading-tight">
-            {{ __('Productos') }}
-        </h2>
+        <div class="flex justify-between items-center">
+
+            <h2 class="font-semibold text-2xl text-blue-900 leading-tight">
+                {{ __('Productos') }}
+            </h2>
+
+            <button 
+                onclick="history.back()"
+                class="text-blue-700 hover:text-blue-900 transition flex items-center space-x-1"
+                title="Regresar"
+            >   
+                <x-heroicon-s-arrow-left class="w-5 h-5" />
+                <span>Atrás</span>
+            </button>
+        </div>
     </x-slot>
 
     <div class="py-10">
@@ -53,10 +65,14 @@
                     <tbody id="tabla-productos"></tbody>
                 </table>
             </div>
+            <!-- Paginación -->
+            <div id="paginacion" class="flex justify-center mt-4 space-x-2"></div>
+
         </div>
     </div>
 
     <!-- MODALES -->
+    @include('inventario.productos.modals.assign')
     @include('inventario.productos.modals.create')
     @include('inventario.productos.modals.edit')
 
@@ -64,9 +80,9 @@
    <script>
         const CSRF_TOKEN = "{{ csrf_token() }}";
 
-        // ---------------------------
+        // ==============================
         // Helpers
-        // ---------------------------
+        // ==============================
         const toInt = (v) => (v !== "" && v !== null ? parseInt(v, 10) : null);
         const toFloat = (v) => (v !== "" && v !== null ? parseFloat(v) : null);
         const orNull = (v) => (v === "" ? null : v);
@@ -100,14 +116,17 @@
             }
         }
 
-        // ======================================
-        //  VARIABLES GLOBALES (PRODUCTOS EN MEMORIA)
-        // ======================================
+        // ==============================
+        // Variables Globales
+        // ==============================
         let PRODUCTOS = [];
+        let PRODUCTOS_FILTRADOS = [];
+        let PAGINA_ACTUAL = 1;
+        const ITEMS_POR_PAGINA = 10;
 
-        // ---------------------------
+        // ==============================
         // Init
-        // ---------------------------
+        // ==============================
         document.addEventListener("DOMContentLoaded", () => {
             cargarProductos();
 
@@ -115,23 +134,24 @@
             document.getElementById("form-edit")?.addEventListener("submit", handleEditProduct);
         });
 
-        // ---------------------------
-        // Cargar tabla
-        // ---------------------------
+        // ==============================
+        // Cargar Productos
+        // ==============================
         function cargarProductos() {
             fetch("/productos/list")
                 .then((res) => res.json())
                 .then((data) => {
-                    PRODUCTOS = data; // ← Guardamos en memoria
+                    PRODUCTOS = data;
+                    PRODUCTOS_FILTRADOS = data;
 
                     cargarCategoriasUnicas(data);
-                    renderTabla(data);
+                    renderPagina();
                 });
         }
 
-        // ---------------------------
-        // RENDERIZAR TABLA
-        // ---------------------------
+        // ==============================
+        // Render Tabla
+        // ==============================
         function renderTabla(lista) {
             let rows = "";
 
@@ -143,6 +163,9 @@
                         <td class="px-4 py-2">${p.categoria ?? "-"}</td>
                         <td class="px-4 py-2">${p.stock_minimo}</td>
                         <td class="px-4 py-2 text-center">
+                            <button onclick="openAssignModal(${p.id})" class="text-green-600 hover:underline mr-3">
+                                Asignar Stock
+                            </button>
                             <button onclick="openEditModal(${p.id})" class="text-blue-600 hover:underline mr-3">Editar</button>
                             <button onclick="eliminarProducto(${p.id})" class="text-red-600 hover:underline">Eliminar</button>
                         </td>
@@ -152,9 +175,69 @@
             document.getElementById("tabla-productos").innerHTML = rows;
         }
 
-        // ===================================================
-        // FILTROS (BUSQUEDA + SELECT)
-        // ===================================================
+        // ==============================
+        // Paginación
+        // ==============================
+        function renderPagina() {
+            const inicio = (PAGINA_ACTUAL - 1) * ITEMS_POR_PAGINA;
+            const fin = inicio + ITEMS_POR_PAGINA;
+
+            const paginaItems = PRODUCTOS_FILTRADOS.slice(inicio, fin);
+
+            renderTabla(paginaItems);
+            renderControlesPaginacion();
+        }
+
+        function renderControlesPaginacion() {
+            const totalPaginas = Math.ceil(PRODUCTOS_FILTRADOS.length / ITEMS_POR_PAGINA);
+            const cont = document.getElementById("paginacion");
+
+            if (totalPaginas <= 1) {
+                cont.innerHTML = "";
+                return;
+            }
+
+            let html = "";
+
+            // Botón anterior
+            html += `
+                <button 
+                    class="px-3 py-1 border rounded ${PAGINA_ACTUAL === 1 ? 'opacity-50 cursor-not-allowed' : ''}"
+                    onclick="cambiarPagina(${PAGINA_ACTUAL - 1})"
+                    ${PAGINA_ACTUAL === 1 ? 'disabled' : ''}
+                >Anterior</button>
+            `;
+
+            // Números
+            for (let i = 1; i <= totalPaginas; i++) {
+                html += `
+                    <button 
+                        class="px-3 py-1 border rounded ${i === PAGINA_ACTUAL ? 'bg-blue-600 text-white' : ''}"
+                        onclick="cambiarPagina(${i})"
+                    >${i}</button>
+                `;
+            }
+
+            // Botón siguiente
+            html += `
+                <button 
+                    class="px-3 py-1 border rounded ${PAGINA_ACTUAL === totalPaginas ? 'opacity-50 cursor-not-allowed' : ''}"
+                    onclick="cambiarPagina(${PAGINA_ACTUAL + 1})"
+                    ${PAGINA_ACTUAL === totalPaginas ? 'disabled' : ''}
+                >Siguiente</button>
+            `;
+
+            cont.innerHTML = html;
+        }
+
+        function cambiarPagina(num) {
+            PAGINA_ACTUAL = num;
+            renderPagina();
+        }
+
+        // ==============================
+        // Filtros
+        // ==============================
         function cargarCategoriasUnicas(data) {
             const select = document.getElementById("categoria-select");
 
@@ -187,12 +270,15 @@
                 filtrados = filtrados.filter(p => p.categoria === categoria);
             }
 
-            renderTabla(filtrados);
+            PRODUCTOS_FILTRADOS = filtrados;
+            PAGINA_ACTUAL = 1;
+
+            renderPagina();
         }
 
-        // ===================================================
-        // CREAR PRODUCTO
-        // ===================================================
+        // ==============================
+        // Crear Producto
+        // ==============================
         async function handleCreateProduct(e) {
             e.preventDefault();
             const fd = new FormData(e.target);
@@ -209,14 +295,15 @@
             };
 
             try {
-                const resProd = await swalLoading(
-                    fetch("/productos/store", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": CSRF_TOKEN },
-                        body: JSON.stringify(productPayload),
-                    }),
-                    "Creando producto…"
-                );
+                const resProd = await fetch("/productos/store", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify(productPayload)
+                });
+
 
                 if (!resProd.ok) throw new Error("Error al crear producto");
 
@@ -233,14 +320,15 @@
                     unidades_por_caja: toInt(fd.get("unidades_por_caja")),
                 };
 
-                const resPrice = await swalLoading(
-                    fetch("/producto-precios", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": CSRF_TOKEN },
-                        body: JSON.stringify(pricePayload),
-                    }),
-                    "Guardando precios…"
-                );
+                const resPrice = await fetch("/producto-precios", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify(pricePayload),
+                });
+
 
                 if (!resPrice.ok) throw new Error("Error al crear precios");
 
@@ -256,9 +344,9 @@
             }
         }
 
-        // ===================================================
-        // EDITAR PRODUCTO
-        // ===================================================
+        // ==============================
+        // Editar Producto
+        // ==============================
         async function openEditModal(id) {
             try {
                 const [resProd, resPrice] = await Promise.all([
@@ -371,9 +459,9 @@
             }
         }
 
-        // ===================================================
-        // ELIMINAR PRODUCTO
-        // ===================================================
+        // ==============================
+        // Eliminar producto
+        // ==============================
         async function eliminarProducto(id) {
             const ok = await swalConfirm("¿Eliminar este producto?");
             if (!ok) return;
@@ -395,11 +483,74 @@
                 swalError("Error al eliminar", err.message);
             }
         }
+        // ==================================
+        // MODAL ASIGNAR STOCK
+        // ==================================
 
-    </script>
+        async function openAssignModal(productoId) {
+
+            document.getElementById("assign-producto-id").value = productoId;
+
+            // Cargar bodegas
+            const bodegasRes = await fetch("/inventario/bodegas");
+            const bodegas = await bodegasRes.json();
+
+            let bodegaSelect = document.getElementById("assign-bodega");
+            bodegaSelect.innerHTML = `<option value="">Seleccione...</option>`;
+            bodegas.forEach(b => {
+                bodegaSelect.innerHTML += `<option value="${b.id}">${b.nombre}</option>`;
+            });
+
+            // Cargar perchas
+            const perchasRes = await fetch("/inventario/perchas");
+            const perchas = await perchasRes.json();
+
+            let perchaSelect = document.getElementById("assign-percha");
+            perchaSelect.innerHTML = `<option value="">Seleccione...</option>`;
+            perchas.forEach(p => {
+                perchaSelect.innerHTML += `<option value="${p.id}">${p.codigo}</option>`;
+            });
+
+            // Mostrar modal
+            document.getElementById("modal-assign").classList.remove("hidden");
+        }
 
 
+        function closeAssignModal() {
+            document.getElementById("modal-assign").classList.add("hidden");
+        }
 
+        async function submitAssign(e) {
+            e.preventDefault();
 
+            const payload = {
+                producto_id: document.getElementById("assign-producto-id").value,
+                bodega_id: document.getElementById("assign-bodega").value,
+                percha_id: document.getElementById("assign-percha").value,
+                stock_actual: parseInt(document.getElementById("assign-stock").value),
+                stock_reservado: 0
+            };
+
+            try {
+                await swalLoading(
+                    fetch("/inventario/store", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": "{{ csrf_token() }}"
+                        },
+                        body: JSON.stringify(payload)
+                    }),
+                    "Asignando producto…"
+                );
+
+                closeAssignModal();
+                await swalSuccess("Asignado", "El producto fue asignado correctamente");
+
+            } catch (err) {
+                swalError("Error", "No se pudo asignar stock");
+            }
+        }
+        </script>
 
 </x-app-layout>

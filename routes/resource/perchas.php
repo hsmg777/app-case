@@ -3,14 +3,20 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Store\PerchaController;
 
-Route::prefix('perchas')->group(function () {
+Route::prefix('inventario/perchas')->group(function () {
 
-    Route::get('/', [PerchaController::class, 'index']);                 // listar todas las perchas
-    Route::get('/{id}', [PerchaController::class, 'show']);              // obtener percha por ID
+    // Vista unificada (usa la misma vista de bodega)
+    Route::get('/vista', [PerchaController::class, 'viewIndex'])
+        ->name('inventario.perchas.vista');
 
-    Route::get('/bodega/{bodegaId}', [PerchaController::class, 'getByBodega']); // listar perchas por bodega
+    // API JSON
+    Route::get('/', [PerchaController::class, 'index']);                 
+    Route::get('/{id}', [PerchaController::class, 'show']);              
 
-    Route::post('/', [PerchaController::class, 'store']);                // crear percha
-    Route::put('/{id}', [PerchaController::class, 'update']);            // actualizar percha
-    Route::delete('/{id}', [PerchaController::class, 'destroy']);        // eliminar percha
+    // Perchas por bodega
+    Route::get('/bodega/{bodegaId}', [PerchaController::class, 'getByBodega']); 
+
+    Route::post('/', [PerchaController::class, 'store']);                
+    Route::put('/{id}', [PerchaController::class, 'update']);            
+    Route::delete('/{id}', [PerchaController::class, 'destroy']);        
 });

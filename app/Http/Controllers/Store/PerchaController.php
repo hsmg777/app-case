@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Store;
 
+use App\Http\Controllers\Controller;
 use App\Services\Store\PerchaService;
 use Illuminate\Http\Request;
 
@@ -13,6 +14,22 @@ class PerchaController extends Controller
     {
         $this->service = $service;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | VISTA PRINCIPAL (misma vista de bodegas)
+    |--------------------------------------------------------------------------
+    */
+    public function viewIndex()
+    {
+        return view('inventario.bodegas_perchas.index');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | API JSON
+    |--------------------------------------------------------------------------
+    */
 
     public function index()
     {

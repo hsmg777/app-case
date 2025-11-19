@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Product\Product;    
+use App\Models\Store\Bodega;
+use App\Models\Store\Percha;
 
 class Inventory extends Model
 {
@@ -16,7 +19,6 @@ class Inventory extends Model
         'stock_reservado',
     ];
 
-    // Relaciones
     public function producto()
     {
         return $this->belongsTo(Product::class, 'producto_id');

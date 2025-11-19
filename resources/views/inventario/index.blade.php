@@ -1,8 +1,20 @@
 <x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-2xl text-blue-900 leading-tight">
-            {{ __('Inventario') }}
-        </h2>
+     <x-slot name="header">
+        <div class="flex justify-between items-center">
+
+            <h2 class="font-semibold text-2xl text-blue-900 leading-tight">
+                {{ __('Inventario') }}
+            </h2>
+
+            <button 
+                onclick="history.back()"
+                class="text-blue-700 hover:text-blue-900 transition flex items-center space-x-1"
+                title="Regresar"
+            >   
+                <x-heroicon-s-arrow-left class="w-5 h-5" />
+                <span>Atrás</span>
+            </button>
+        </div>
     </x-slot>
 
     <div class="py-10">
@@ -25,82 +37,16 @@
                         </svg>
 
                         <h3 class="mt-4 text-lg font-semibold text-blue-900">
-                            Productos
+                            Productos y precios
                         </h3>
                         <p class="text-sm text-blue-700/70 mt-1">
-                            Gestión de productos y códigos
-                        </p>
-                    </div>
-                </a>
-
-                <!-- Precios -->
-                <a href="{{ url('/inventario/precios') }}"
-                   class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
-                          hover:border-blue-400 hover:shadow-lg transition">
-                    <div class="flex flex-col items-center text-center">
-
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                             class="h-12 w-12 text-blue-700 group-hover:text-blue-800 transition"
-                             fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-10c1.38 0 2.5.895 2.5 2s-1.12 2-2.5 2m0 0c-1.38 0-2.5.895-2.5 2s1.12 2 2.5 2m0 0v1m0-13v1" />
-                        </svg>
-
-                        <h3 class="mt-4 text-lg font-semibold text-blue-900">
-                            Precios
-                        </h3>
-                        <p class="text-sm text-blue-700/70 mt-1">
-                            Configuración de precios por unidad, cantidad y caja
-                        </p>
-                    </div>
-                </a>
-
-                <!-- Bodegas -->
-                <a href="{{ url('/inventario/bodegas') }}"
-                   class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
-                          hover:border-blue-400 hover:shadow-lg transition">
-                    <div class="flex flex-col items-center text-center">
-
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                             class="h-12 w-12 text-blue-700 group-hover:text-blue-800 transition"
-                             fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                                d="M3 10l9-7 9 7v10a2 2 0 01-2 2H5a2 2 0 01-2-2V10z" />
-                        </svg>
-
-                        <h3 class="mt-4 text-lg font-semibold text-blue-900">
-                            Bodegas
-                        </h3>
-                        <p class="text-sm text-blue-700/70 mt-1">
-                            Gestión de bodegas y sucursales
-                        </p>
-                    </div>
-                </a>
-
-                <!-- Perchas -->
-                <a href="{{ url('/inventario/perchas') }}"
-                   class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
-                          hover:border-blue-400 hover:shadow-lg transition">
-                    <div class="flex flex-col items-center text-center">
-
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                             class="h-12 w-12 text-blue-700 group-hover:text-blue-800 transition"
-                             fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                                d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-
-                        <h3 class="mt-4 text-lg font-semibold text-blue-900">
-                            Perchas
-                        </h3>
-                        <p class="text-sm text-blue-700/70 mt-1">
-                            Ubicación interna del inventario
+                            Gestión de productos, códigos y precios
                         </p>
                     </div>
                 </a>
 
                 <!-- Inventario -->
-                <a href="{{ url('/inventario/stock') }}"
+                <a href="{{ route('inventario.stock') }}"
                    class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
                           hover:border-blue-400 hover:shadow-lg transition">
                     <div class="flex flex-col items-center text-center">
@@ -117,6 +63,28 @@
                         </h3>
                         <p class="text-sm text-blue-700/70 mt-1">
                             Control total de inventario
+                        </p>
+                    </div>
+                </a>
+
+                <!-- Bodegas -->
+                <a href="{{ route('inventario.bodegas_perchas') }}"
+                        class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
+                        hover:border-blue-400 hover:shadow-lg transition">
+                    <div class="flex flex-col items-center text-center">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-12 w-12 text-blue-700 group-hover:text-blue-800 transition"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                d="M3 10l9-7 9 7v10a2 2 0 01-2 2H5a2 2 0 01-2-2V10z" />
+                        </svg>
+
+                        <h3 class="mt-4 text-lg font-semibold text-blue-900">
+                            Bodegas y perchas
+                        </h3>
+                        <p class="text-sm text-blue-700/70 mt-1">
+                            Gestión de bodegas y perchas
                         </p>
                     </div>
                 </a>
