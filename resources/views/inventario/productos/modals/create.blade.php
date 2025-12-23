@@ -1,9 +1,9 @@
-<div id="modal-create" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+<div id="modal-create" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center">
   <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl">
     <!-- Header -->
     <div class="px-6 py-4 border-b flex items-center justify-between">
       <h2 class="text-xl font-semibold text-blue-900">Nuevo Producto</h2>
-      <button type="button" onclick="closeCreateModal()" class="text-gray-500 hover:text-gray-700">✕</button>
+      <button type="button" data-create-close class="text-gray-500 hover:text-gray-700">✕</button>
     </div>
 
     <form id="form-create-product" class="p-6">
@@ -41,7 +41,6 @@
               </div>
             </div>
 
-            <!-- ✅ Stock mínimo + IVA -->
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-xs text-blue-800">Stock mínimo *</label>
@@ -138,7 +137,7 @@
 
       <!-- Footer -->
       <div class="flex justify-end gap-3 mt-6">
-        <button type="button" onclick="closeCreateModal()" class="px-4 py-2 rounded border border-gray-300 text-gray-700">Cancelar</button>
+        <button type="button" data-create-close class="px-4 py-2 rounded border border-gray-300 text-gray-700">Cancelar</button>
         <button type="submit" class="px-4 py-2 rounded bg-blue-700 text-white hover:bg-blue-800">Guardar</button>
       </div>
     </form>
@@ -146,9 +145,7 @@
 </div>
 
 <script>
-  // ✅ Solo init toggles del modal CREATE (IDs únicos)
   (function initCreateToggles() {
-    // anti-doble-bind
     if (window.__createProductTogglesReady) return;
     window.__createProductTogglesReady = true;
 

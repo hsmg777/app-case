@@ -3,20 +3,28 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Store\PerchaController;
 
-Route::prefix('inventario/perchas')->group(function () {
+/*
+|--------------------------------------------------------------------------
+| PERCHAS (inventario) - supervisor|admin
+|--------------------------------------------------------------------------
+*/
 
-    // Vista unificada (usa la misma vista de bodega)
-    Route::get('/vista', [PerchaController::class, 'viewIndex'])
-        ->name('inventario.perchas.vista');
+Route::middleware(['auth', 'role:supervisor|admin'])
+    ->prefix('inventario/perchas')
+    ->group(function () {
 
-    // API JSON
-    Route::get('/', [PerchaController::class, 'index']);                 
-    Route::get('/{id}', [PerchaController::class, 'show']);              
+        // Vista unificada (usa la misma vista de bodega)
+        Route::get('/vista', [PerchaController::class, 'viewIndex'])
+            ->name('inventario.perchas.vista');
 
-    // Perchas por bodega
-    Route::get('/bodega/{bodegaId}', [PerchaController::class, 'getByBodega']); 
+        // API JSON
+        Route::get('/', [PerchaController::class, 'index']);
+        Route::get('/{id}', [PerchaController::class, 'show']);
 
-    Route::post('/', [PerchaController::class, 'store']);                
-    Route::put('/{id}', [PerchaController::class, 'update']);            
-    Route::delete('/{id}', [PerchaController::class, 'destroy']);        
-});
+        // Perchas por bodega
+        Route::get('/bodega/{bodegaId}', [PerchaController::class, 'getByBodega']);
+
+        Route::post('/', [PerchaController::class, 'store']);
+        Route::put('/{id}', [PerchaController::class, 'update']);
+        Route::delete('/{id}', [PerchaController::class, 'destroy']);
+    });

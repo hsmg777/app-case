@@ -3,34 +3,43 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Product\ProductController;
 
-Route::prefix('productos')->group(function () {
+/*
+|--------------------------------------------------------------------------
+| PRODUCTOS (supervisor|admin)
+|--------------------------------------------------------------------------
+*/
 
-    /*
-    |--------------------------------------------------------------------------
-    | VISTAS (BLADE)
-    |--------------------------------------------------------------------------
-    */
+Route::middleware(['auth', 'role:supervisor|admin'])
+    ->prefix('productos')
+    ->group(function () {
 
-    Route::get('/', [ProductController::class, 'viewIndex'])
-        ->name('productos.index');
+        /*
+        |--------------------------------------------------------------------------
+        | VISTAS (BLADE)
+        |--------------------------------------------------------------------------
+        */
 
-    Route::get('/crear', [ProductController::class, 'viewCreate'])
-        ->name('productos.create');
+        Route::get('/', [ProductController::class, 'viewIndex'])
+            ->name('productos.index');
 
-    Route::get('/editar/{id}', [ProductController::class, 'viewEdit'])
-        ->name('productos.edit');
+        Route::get('/crear', [ProductController::class, 'viewCreate'])
+            ->name('productos.create');
 
+        Route::get('/editar/{id}', [ProductController::class, 'viewEdit'])
+            ->name('productos.edit');
 
-    /*
-    |--------------------------------------------------------------------------
-    | API (JSON)
-    |--------------------------------------------------------------------------
-    */
+        /*
+        |--------------------------------------------------------------------------
+        | API (JSON)
+        |--------------------------------------------------------------------------
+        */
 
-    Route::get('/list', [ProductController::class, 'index']);
-    Route::get('/show/{id}', [ProductController::class, 'show']);
+        Route::get('/list', [ProductController::class, 'index']);
+        Route::get('/show/{id}', [ProductController::class, 'show']);
 
-    Route::post('/store', [ProductController::class, 'store']);
-    Route::put('/update/{id}', [ProductController::class, 'update']);
-    Route::delete('/delete/{id}', [ProductController::class, 'destroy']);
-});
+        Route::post('/store', [ProductController::class, 'store']);
+        Route::put('/update/{id}', [ProductController::class, 'update']);
+        Route::delete('/delete/{id}', [ProductController::class, 'destroy']);
+
+        Route::patch('/{id}/estado', [ProductController::class, 'setEstado']);
+    });

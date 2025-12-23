@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Product\ProductService;
 use Illuminate\Http\Request;
 
+
 class ProductController extends Controller
 {
     protected $service;
@@ -53,8 +54,15 @@ class ProductController extends Controller
             );
         }
 
-        return response()->json($this->service->getAll());
+        $estado = $request->query('estado', 'activos');
+
+        $onlyActive = true;
+        if ($estado === 'inactivos') $onlyActive = false;
+        if ($estado === 'todos') $onlyActive = null;
+
+        return response()->json($this->service->getAll($onlyActive));
     }
+
 
     public function show($id)
     {
@@ -73,13 +81,11 @@ class ProductController extends Controller
             'unidad_medida' => 'required|string|max:50',
             'stock_minimo' => 'required|integer|min:0',
 
-            // ✅ NUEVO: IVA por producto (0, 15, etc.)
             'iva_porcentaje' => 'nullable|numeric|min:0|max:100',
 
             'estado' => 'boolean',
         ]);
 
-        // si no viene, deja que el default de DB/service lo maneje (15.00)
         return response()->json($this->service->create($data), 201);
     }
 
@@ -106,5 +112,18 @@ class ProductController extends Controller
     {
         $this->service->delete($id);
         return response()->json(['message' => 'Producto eliminado correctamente']);
+    }
+
+    public function setEstado(Request $request, string $id)
+    {
+        $data = $request->validate([
+            'estado' => ['required', 'boolean'],
+        ]);
+
+        $this->service->setEstado($id, (bool) $data['estado']);
+
+        return response()->json([
+            'message' => $data['estado'] ? 'Producto activado' : 'Producto desactivado',
+        ]);
     }
 }

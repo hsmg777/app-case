@@ -218,102 +218,104 @@ function filterAndRenderClients(term) {
  * Carga los emails del cliente para el select de correo.
  */
 async function loadClientEmails(clientId) {
-    const select  = document.getElementById('cliente_email');
-    const resumen = document.getElementById('cliente_email_resumen');
+  const select  = document.getElementById('cliente_email');
+  const resumen = document.getElementById('cliente_email_resumen');
 
-    console.log('[POS] loadClientEmails() llamado con clientId =', clientId);
-    console.log('[POS] select encontrado?', !!select);
+  console.log('[POS] loadClientEmails() llamado con clientId =', clientId);
+  console.log('[POS] select encontrado?', !!select);
 
-    if (!select || !clientId) {
-        console.warn('[POS] No hay <select id="cliente_email"> o clientId vacío');
-        return;
+  if (!select || !clientId) {
+    console.warn('[POS] No hay <select id="cliente_email"> o clientId vacío');
+    return;
+  }
+
+  select.innerHTML = '<option value="">Cargando correos...</option>';
+  if (resumen) resumen.textContent = 'Cargando correos...';
+
+  try {
+    const base = window.SALES_ROUTES?.clientEmailsBase || '/clients';
+    const url = `${base}/${clientId}/emails`;
+
+    console.log('[POS] Fetch a:', url);
+
+    const res = await fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin',
+    });
+
+    console.log('[POS] Status correos:', res.status);
+
+    if (!res.ok) {
+      select.innerHTML = '<option value="">Sin correos disponibles</option>';
+      if (resumen) resumen.textContent = 'Sin correo seleccionado';
+      return;
     }
 
-    // Estado inicial: cargando
-    select.innerHTML = '<option value="">Cargando correos...</option>';
-    if (resumen) resumen.textContent = 'Cargando correos...';
+    const raw = await res.json();
+    console.log('[POS] Respuesta correos cruda:', raw);
 
-    try {
-        const url = `/clients/${clientId}/emails`;
-        console.log('[POS] Fetch a:', url);
+    let emails = [];
 
-        const res = await fetch(url, {
-            headers: { 'Accept': 'application/json' },
-            credentials: 'same-origin',
-        });
+    if (Array.isArray(raw)) {
+      if (raw.length && typeof raw[0] === 'object') {
+        emails = raw
+          .map(e => ({
+            id: e?.id ?? e?.client_email_id ?? null,
+            email: e?.email ?? e?.correo ?? e?.mail ?? null,
+          }))
+          .filter(x => x.id && x.email);
+      }
 
-        console.log('[POS] Status correos:', res.status);
-
-        if (!res.ok) {
-            console.error('[POS] Error al cargar correos, status:', res.status);
-            select.innerHTML = '<option value="">Sin correos disponibles</option>';
-            if (resumen) resumen.textContent = 'Sin correo seleccionado';
-            return;
-        }
-
-        const raw = await res.json();
-        console.log('[POS] Respuesta correos cruda:', raw);
-
-        // Esperamos un array de strings como ["a@b.com", "b@c.com"]
-        let emails = [];
-
-        if (Array.isArray(raw)) {
-            if (raw.length && typeof raw[0] === 'string') {
-                emails = raw.filter(Boolean);
-            } else {
-                emails = raw
-                    .map(e => e && (e.email || e.correo || e.mail))
-                    .filter(Boolean);
-            }
-        } else if (raw && Array.isArray(raw.data)) {
-            emails = raw.data
-                .map(e => e && (e.email || e.correo || e.mail))
-                .filter(Boolean);
-        }
-
-        console.log('[POS] Emails procesados:', emails);
-        window.__POS_LAST_EMAILS__ = { clientId, raw, emails };
-
-        // Limpiamos el select usando API nativa (por si innerHTML da problemas)
-        while (select.options.length) {
-            select.remove(0);
-        }
-
-        // Placeholder
-        const placeholder = new Option('Selecciona un correo (opcional)', '');
-        select.add(placeholder);
-
-        if (!emails.length) {
-            if (resumen) resumen.textContent = 'Sin correo seleccionado';
-            return;
-        }
-
-        let firstEmail = null;
-
-        emails.forEach((email) => {
-            const opt = new Option(email, email);
-            select.add(opt);
-            if (!firstEmail) firstEmail = email;
-        });
-
-        if (firstEmail) {
-            select.value = firstEmail;
-            if (resumen) resumen.textContent = `Enviar factura a: ${firstEmail}`;
-            // Disparamos change por si hay listeners
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-        } else if (resumen) {
-            resumen.textContent = 'Sin correo seleccionado';
-        }
-    } catch (e) {
-        console.error('[POS] Error al cargar correos de cliente:', e);
-        while (select.options.length) {
-            select.remove(0);
-        }
-        const opt = new Option('Error al cargar correos', '');
-        select.add(opt);
-        if (resumen) resumen.textContent = 'Error al cargar correos';
+      else if (raw.length && typeof raw[0] === 'string') {
+        emails = raw
+          .filter(Boolean)
+          .map((email, idx) => ({ id: `str_${idx}`, email }));
+      }
+    } else if (raw && Array.isArray(raw.data)) {
+      emails = raw.data
+        .map(e => ({
+          id: e?.id ?? e?.client_email_id ?? null,
+          email: e?.email ?? e?.correo ?? e?.mail ?? null,
+        }))
+        .filter(x => x.id && x.email);
     }
+
+    console.log('[POS] Emails procesados:', emails);
+    window.__POS_LAST_EMAILS__ = { clientId, raw, emails };
+
+    while (select.options.length) select.remove(0);
+
+    select.add(new Option('Selecciona un correo (opcional)', ''));
+
+    if (!emails.length) {
+      if (resumen) resumen.textContent = 'Sin correo seleccionado';
+      return;
+    }
+
+    let first = null;
+
+    emails.forEach(({ id, email }) => {
+      const opt = new Option(email, String(id));
+      opt.dataset.email = email; 
+      select.add(opt);
+      if (!first) first = { id, email };
+    });
+
+    if (first) {
+      select.value = String(first.id);
+      if (resumen) resumen.textContent = `Enviar factura a: ${first.email}`;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      if (resumen) resumen.textContent = 'Sin correo seleccionado';
+    }
+  } catch (e) {
+    console.error('[POS] Error al cargar correos de cliente:', e);
+    while (select.options.length) select.remove(0);
+    select.add(new Option('Error al cargar correos', ''));
+    if (resumen) resumen.textContent = 'Error al cargar correos';
+  }
 }
+
 
 /**
  * Helpers globales para el modal de crear cliente (usados por los onclick del Blade).
@@ -604,12 +606,13 @@ export function initClientSelector() {
 
     const emailSelect = document.getElementById('cliente_email');
     const emailResumen = document.getElementById('cliente_email_resumen');
+
     if (emailSelect && emailResumen) {
-        emailSelect.addEventListener('change', () => {
-            const val = emailSelect.value;
-            emailResumen.textContent = val
-                ? `Enviar factura a: ${val}`
-                : 'Sin correo seleccionado';
-        });
+    emailSelect.addEventListener('change', () => {
+        const opt = emailSelect.selectedOptions?.[0];
+        const email = opt?.text || '';
+        emailResumen.textContent = opt?.value ? `Enviar factura a: ${email}` : 'Sin correo seleccionado';
+    });
     }
+
 }

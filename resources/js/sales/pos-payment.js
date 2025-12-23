@@ -6,7 +6,37 @@ function getIvaEnabled() {
   return el ? !!el.checked : true;
 }
 
+function getCajaId() {
+  const el = document.getElementById("caja_id");
+  const raw = el?.value ? String(el.value).trim() : "";
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function buildCashierOpenUrl() {
+  const base = (window.SALES_ROUTES?.cashierOpen) || "/cashier/open";
+  const cajaId = getCajaId();
+  const bodegaId = document.getElementById("bodega_id")?.value || null;
+
+  const url = new URL(base, window.location.origin);
+  url.searchParams.set("return_to", window.location.href);
+  if (bodegaId) url.searchParams.set("bodega_id", bodegaId);
+  if (cajaId) url.searchParams.set("caja_id", String(cajaId));
+  return url.toString();
+}
+
+function ensureCajaOrRedirect() {
+  const cajaId = getCajaId();
+  if (!cajaId) {
+    window.location.href = buildCashierOpenUrl();
+    return false;
+  }
+  return true;
+}
+
+
 function openPaymentModal() {
+  if (!ensureCajaOrRedirect()) return;
   const cart = getCart();
   if (!cart || cart.length === 0) {
     showSaleAlert("Debes agregar al menos un producto al carrito.", true);
@@ -40,9 +70,10 @@ function openPaymentModal() {
   const emailSelect = document.getElementById("cliente_email");
   const emailPreview = document.getElementById("payment_modal_email_preview");
   if (emailSelect && emailPreview) {
-    const opt = emailSelect.selectedOptions[0];
+    const opt = emailSelect.selectedOptions?.[0];
     emailPreview.textContent =
-      opt && opt.value ? opt.value : "(sin correo seleccionado)";
+      opt && opt.value ? opt.text : "(sin correo seleccionado)";
+
   }
 
   recalcCambio();
@@ -90,6 +121,7 @@ function closeChangeModal() {
 let submitting = false;
 
 async function submitSaleFromModal() {
+  if (!ensureCajaOrRedirect()) return;
   if (submitting) return;
   submitting = true;
 
@@ -146,13 +178,18 @@ async function submitSaleFromModal() {
     const clientId = document.getElementById("client_id")?.value || null;
 
     const emailSelect = document.getElementById("cliente_email");
-    const emailDestino =
-      emailSelect && emailSelect.value ? emailSelect.value : null;
+    const selectedOpt = emailSelect?.selectedOptions?.[0];
 
-    // 🔥 IMPORTANTE:
-    // - NO mandamos subtotal/iva/total como “cálculo final”
-    // - El backend calcula IVA exacto (en centavos) y guarda
+    const clientEmailId = emailSelect && emailSelect.value ? emailSelect.value : null;
+    const emailDestino = selectedOpt && selectedOpt.value ? selectedOpt.text : null;
+
+
+    const cajaId = getCajaId();
+
     const payload = {
+      caja_id: cajaId,
+      client_email_id: clientEmailId ? Number(clientEmailId) : null,
+      email_destino: emailDestino,
       client_id: clientId || null,
       user_id: window.AUTH_USER_ID || null,
       bodega_id: bodegaId,
@@ -163,15 +200,28 @@ async function submitSaleFromModal() {
 
       iva_enabled: ivaEnabled,
 
-      items: cart.map((item) => ({
+      items: cart.map((item) => {
+      const qty = Number(item.cantidad) || 1;
+
+      const lineSubtotal =
+        Number(item.lineSubtotal ?? 0) ||
+        (Number(item.total ?? 0) + Number(item.descuento ?? 0));
+
+      const precioEfectivo = qty > 0
+        ? (lineSubtotal / qty)
+        : Number(item.precio_unitario ?? 0);
+
+      return {
         producto_id: item.producto_id,
         descripcion: item.descripcion,
-        cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario,
-        descuento: item.descuento || 0,
+        cantidad: qty,
+        precio_unitario: Number(precioEfectivo || 0).toFixed(2),
+        descuento: Number(item.descuento || 0),
         iva_porcentaje: item.iva_porcentaje ?? 15,
         percha_id: item.percha_id ?? null,
-      })),
+      };
+    }),
+
 
       payment: {
         metodo,
@@ -215,9 +265,22 @@ async function submitSaleFromModal() {
 
     if (res.status === 422) {
       const data = await res.json();
+
+      const msg = (data?.message || "").toLowerCase();
+      const hasCajaError =
+        msg.includes("no hay caja abierta") ||
+        msg.includes("caja") ||
+        !!data?.errors?.caja_id;
+
+      if (hasCajaError) {
+        window.location.href = buildCashierOpenUrl();
+        return;
+      }
+
       showSaleAlert(data?.message || "Error de validación en la venta.", true);
       return;
     }
+
 
     if (!res.ok) {
       showSaleAlert("Ocurrió un error al registrar la venta.", true);

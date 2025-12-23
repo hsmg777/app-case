@@ -7,17 +7,17 @@ use App\Models\Inventory\Inventory;
 
 class ProductService
 {
-    protected $repo;
+    protected ProductRepository $repo;
 
     public function __construct(ProductRepository $repo)
     {
         $this->repo = $repo;
     }
 
-    public function getAll()
+    public function getAll(?bool $onlyActive = true)
     {
         return $this->repo->all(
-            onlyActive: true,
+            onlyActive: $onlyActive,
             withPrice: true,
             withTierPrices: true
         );
@@ -67,7 +67,6 @@ class ProductService
 
     public function getByBodegaWithStock(int $bodegaId)
     {
-        // ✅ CORRECTO
         $inventarios = Inventory::with([
                 'producto.price',
                 'producto.productPrices',
@@ -82,12 +81,17 @@ class ProductService
                 $product = $inv->producto;
 
                 $data = $product->toArray();
-
                 $data['stock_actual'] = $inv->stock_actual;
                 $data['bodega_id']    = $inv->bodega_id;
 
                 return $data;
             })
             ->values();
+    }
+
+    public function setEstado(string $id, bool $estado): void
+    {
+        $product = $this->repo->find($id);
+        $this->repo->setEstado($product, $estado);
     }
 }

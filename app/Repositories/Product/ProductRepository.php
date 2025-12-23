@@ -7,20 +7,20 @@ use App\Models\Product\Product;
 class ProductRepository
 {
     public function all(
-        bool $onlyActive = false,
+        ?bool $onlyActive = true,
         bool $withPrice = true,
         bool $withTierPrices = true
     ) {
         $query = Product::query()->orderBy('nombre', 'asc');
 
         $with = [];
-
         if ($withPrice) $with[] = 'price';
-        if ($withTierPrices) $with[] = 'productPrices'; // ✅ ya existe
-
+        if ($withTierPrices) $with[] = 'productPrices';
         if (!empty($with)) $query->with($with);
 
-        if ($onlyActive) $query->where('estado', true);
+        if ($onlyActive !== null) {
+            $query->where('estado', $onlyActive);
+        }
 
         return $query->get();
     }
@@ -35,7 +35,6 @@ class ProductRepository
         $with = [];
         if ($withPrice) $with[] = 'price';
         if ($withTierPrices) $with[] = 'productPrices';
-
         if (!empty($with)) $query->with($with);
 
         return $query->findOrFail($id);
@@ -49,12 +48,22 @@ class ProductRepository
     public function update(Product $product, array $data)
     {
         $product->update($data);
-
         return $product->refresh()->load(['price', 'productPrices']);
     }
 
     public function delete(Product $product)
     {
         return $product->delete();
+    }
+
+    public function findOrFail(string $id): Product
+    {
+        return Product::query()->findOrFail($id);
+    }
+
+    public function setEstado(Product $product, bool $estado): void
+    {
+        $product->estado = $estado;
+        $product->save();
     }
 }

@@ -3,8 +3,16 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Clients\ClientController;
 
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::prefix('clients')->name('clients.')->group(function () {
+/*
+|--------------------------------------------------------------------------
+| CLIENTES (cashier|admin)
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth', 'verified', 'role:cashier|admin'])
+    ->prefix('clients')
+    ->name('clients.')
+    ->group(function () {
 
         Route::get('/', [ClientController::class, 'index'])->name('index');
 
@@ -13,7 +21,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/{id}', [ClientController::class, 'show'])->name('show');
 
         Route::get('/{id}/emails', [ClientController::class, 'emails'])->name('emails');
-        
+
         Route::put('/{id}', [ClientController::class, 'update'])->name('update');
         Route::patch('/{id}', [ClientController::class, 'update'])->name('update.partial');
 
@@ -22,4 +30,3 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/search-by-identificacion', [ClientController::class, 'findByIdentificacion'])
             ->name('searchByIdentificacion');
     });
-});

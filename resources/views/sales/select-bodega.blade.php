@@ -20,7 +20,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 @foreach($bodegas as $bodega)
                     <a
-                        href="{{ route('ventas.index', $bodega->id) }}"
+                        href="{{ route('cashier.open.view', ['return_to' => route('ventas.index', $bodega->id), 'bodega_id' => $bodega->id]) }}"
                         class="group bg-white rounded-2xl p-6 border border-slate-200 shadow-sm
                                hover:shadow-lg hover:border-blue-400 transition"
                     >

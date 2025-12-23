@@ -15,6 +15,11 @@
             </button>
         </div>
     </x-slot>
+    @php
+        $cajaId = session('caja_id') ?? request('caja_id');
+        $returnTo = url()->full();
+    @endphp
+
 
     <div class="py-4">
         <div class="max-w-7xl mx-auto px-3 lg:px-4">
@@ -40,7 +45,36 @@
                 <section class="flex-[1.6] flex flex-col gap-4 min-h-0">
 
                     {{-- Barra superior --}}
+                    <input type="hidden" id="caja_id" value="{{ $cajaId ?? '' }}">
                     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-3">
+                        <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                        {{-- Cerrar caja (solo si hay caja_id) --}}
+                        @if($cajaId)
+                            <a
+                                href="{{ route('cashier.close.view', ['caja_id' => $cajaId]) }}"
+                                class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-600 text-white text-xs font-semibold shadow hover:bg-rose-700 transition"
+                                title="Cerrar caja"
+                            >
+                                <x-heroicon-s-lock-closed class="w-4 h-4" />
+                                <span>Cerrar caja</span>
+                            </a>
+                        @else
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-300 text-white text-xs font-semibold shadow cursor-not-allowed"
+                                title="Primero abre caja"
+                                disabled
+                            >
+                                <x-heroicon-s-lock-closed class="w-4 h-4" />
+                                <span>Cerrar caja</span>
+                            </button>
+                        @endif
+
+                        
+                    </div>
+
+                    </div>
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                             <div class="flex flex-col space-y-1">
                                 <label class="text-[11px] tracking-wide font-semibold text-slate-500 uppercase">
@@ -317,6 +351,33 @@
                                 <x-heroicon-s-currency-dollar class="w-5 h-5" />
                                 <span>COBRAR</span>
                             </button>
+                            @php
+                                $hasCaja = !empty($cajaId);
+                            @endphp
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    id="btn-open-cash-in"
+                                    class="w-full inline-flex justify-center items-center px-4 py-2 rounded-2xl font-semibold text-xs uppercase tracking-wide shadow
+                                        {{ $hasCaja ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed' }}"
+                                    {{ $hasCaja ? '' : 'disabled' }}
+                                    title="{{ $hasCaja ? 'Registrar ingreso de caja' : 'Primero abre caja' }}"
+                                >
+                                    Ingreso
+                                </button>
+
+                                <button
+                                    type="button"
+                                    id="btn-open-cash-out"
+                                    class="w-full inline-flex justify-center items-center px-4 py-2 rounded-2xl font-semibold text-xs uppercase tracking-wide shadow
+                                        {{ $hasCaja ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed' }}"
+                                    {{ $hasCaja ? '' : 'disabled' }}
+                                    title="{{ $hasCaja ? 'Registrar retiro de caja' : 'Primero abre caja' }}"
+                                >
+                                    Retiro
+                                </button>
+                            </div>
                         </footer>
                     </div>
                 </section>
@@ -327,6 +388,9 @@
             @include('sales.partials.change-modal')
             @include('sales.partials.client-modal')
             @include('clients.modals.create')
+            @include('sales.partials.cash-in-modal')
+            @include('sales.partials.cash-out-modal')
+
 
 
         </div>
@@ -352,6 +416,9 @@
             productSearch: "{{ url('/productos/list') }}",
             clientIndex: "{{ route('clients.index') }}",
             clientEmailsBase: "{{ url('/clients') }}",
+            cashierOpen: "{{ route('cashier.open.view') }}",
+            cashierMovement: "{{ route('cashier.movement') }}",
+
         };
         window.CSRF_TOKEN = "{{ csrf_token() }}";
 
@@ -376,6 +443,118 @@
         sync();
     })();
     </script>
+    <script>
+        (function () {
+        const cajaInput = document.getElementById('caja_id');
+
+        const inModal = document.getElementById('cashInModal');
+        const outModal = document.getElementById('cashOutModal');
+
+        const btnOpenIn = document.getElementById('btn-open-cash-in');
+        const btnOpenOut = document.getElementById('btn-open-cash-out');
+
+        const btnSubmitIn = document.getElementById('btnSubmitCashIn');
+        const btnSubmitOut = document.getElementById('btnSubmitCashOut');
+
+        function openModal(el) { if (el) el.classList.remove('hidden'); }
+        function closeModal(el) { if (el) el.classList.add('hidden'); }
+
+        document.addEventListener('click', (e) => {
+            const target = e.target;
+            const id = target?.getAttribute?.('data-close');
+            if (!id) return;
+            const m = document.getElementById(id);
+            closeModal(m);
+        });
+
+        function getCajaId() {
+            const v = Number(cajaInput?.value || 0);
+            return Number.isFinite(v) ? v : 0;
+        }
+
+        async function sendMovement(type, amount, reason) {
+            const cajaId = getCajaId();
+            if (!cajaId) {
+            window.Swal?.fire('Caja no abierta', 'Primero debes abrir una caja.', 'warning');
+            return;
+            }
+
+            const url = window.SALES_ROUTES?.cashierMovement;
+            if (!url) {
+            window.Swal?.fire('Error', 'No se encontró la ruta cashierMovement.', 'error');
+            return;
+            }
+
+            const fd = new FormData();
+            fd.append('caja_id', String(cajaId));
+            fd.append('type', type); // IN / OUT
+            fd.append('amount', String(amount));
+            fd.append('reason', reason);
+
+            const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': window.CSRF_TOKEN,
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+            },
+            body: fd
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+            const msg =
+                data?.message ||
+                (data?.errors ? Object.values(data.errors).flat().join('\n') : 'No se pudo registrar el movimiento.');
+            throw new Error(msg);
+            }
+
+            return data;
+        }
+
+        btnOpenIn?.addEventListener('click', () => openModal(inModal));
+        btnOpenOut?.addEventListener('click', () => openModal(outModal));
+
+        btnSubmitIn?.addEventListener('click', async () => {
+            const amount = Number(document.getElementById('cashInAmount')?.value || 0);
+            const reason = (document.getElementById('cashInReason')?.value || '').trim();
+
+            if (!(amount > 0)) return window.Swal?.fire('Falta monto', 'Ingresa un monto válido.', 'warning');
+            if (!reason) return window.Swal?.fire('Falta motivo', 'Ingresa el motivo del ingreso.', 'warning');
+
+            try {
+            const r = await sendMovement('IN', amount, reason);
+            closeModal(inModal);
+            document.getElementById('cashInAmount').value = '';
+            document.getElementById('cashInReason').value = '';
+            window.Swal?.fire('Guardado', r?.message || 'Ingreso registrado.', 'success');
+            } catch (err) {
+            window.Swal?.fire('Error', err.message || 'No se pudo registrar el ingreso.', 'error');
+            }
+        });
+
+        btnSubmitOut?.addEventListener('click', async () => {
+            const amount = Number(document.getElementById('cashOutAmount')?.value || 0);
+            const reason = (document.getElementById('cashOutReason')?.value || '').trim();
+
+            if (!(amount > 0)) return window.Swal?.fire('Falta monto', 'Ingresa un monto válido.', 'warning');
+            if (!reason) return window.Swal?.fire('Falta motivo', 'Ingresa el motivo del retiro.', 'warning');
+
+            try {
+            const r = await sendMovement('OUT', amount, reason);
+            closeModal(outModal);
+            document.getElementById('cashOutAmount').value = '';
+            document.getElementById('cashOutReason').value = '';
+            window.Swal?.fire('Guardado', r?.message || 'Retiro registrado.', 'success');
+            } catch (err) {
+            window.Swal?.fire('Error', err.message || 'No se pudo registrar el retiro.', 'error');
+            }
+        });
+
+        })();
+        </script>
+
 
 
 </x-app-layout>

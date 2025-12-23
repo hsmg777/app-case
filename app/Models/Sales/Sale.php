@@ -16,6 +16,8 @@ class Sale extends Model
 
     protected $fillable = [
         'client_id',
+        'client_email_id',
+        'email_destino', 
         'user_id',
         'bodega_id',
         'fecha_venta',
@@ -72,6 +74,12 @@ class Sale extends Model
     {
         return $this->hasOne(\App\Models\Sri\ElectronicInvoice::class, 'sale_id');
     }
+
+    public function clientEmail()
+    {
+        return $this->belongsTo(\App\Models\Clients\ClientEmail::class, 'client_email_id');
+    }
+
 
     /* ==========================
        HELPERS

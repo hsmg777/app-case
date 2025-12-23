@@ -33,6 +33,15 @@ class SaleRepository
 
     public function findById(int $id): ?Sale
     {
-        return Sale::with(['client', 'user', 'bodega', 'items', 'payments'])->find($id);
+        return Sale::with([
+            'client.emails',
+            'clientEmail',
+            'user',
+            'bodega',
+            'items.producto',
+            'payments'
+        ])->find($id);
     }
+
+
 }

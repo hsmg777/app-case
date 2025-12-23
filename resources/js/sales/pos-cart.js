@@ -14,8 +14,8 @@ const toCents = (value) => {
 };
 
 // ✅ más consistente: siempre 2 decimales
-const fromCents = (cents) =>
-  Math.round((Number(cents || 0) / 100) * 100) / 100;
+const fromCents = (cents) => Number((Number(cents || 0) / 100).toFixed(2));
+
 
 function clampPct(v) {
   let pct = parseFloat(v);
@@ -43,7 +43,8 @@ function isIvaGlobalEnabled() {
 // - Calcula subtotal inteligente en centavos
 // ==============================
 function pickBestQtyTier(rules = [], qty) {
-  const candidates = (rules || [])
+  // 1) match estricto (min..max)
+  const strict = (rules || [])
     .filter((r) => {
       const p = Number(r?.precio_por_cantidad);
       const min = Number(r?.cantidad_min);
@@ -53,11 +54,24 @@ function pickBestQtyTier(rules = [], qty) {
       if (max != null && qty > max) return false;
       return true;
     })
-    // más específico: mayor cantidad_min
     .sort((a, b) => Number(b.cantidad_min) - Number(a.cantidad_min));
 
-  return candidates[0] || null;
+  if (strict[0]) return strict[0];
+
+  // 2) fallback: si no hay regla para 13+, quédate con el último tier aplicable por min
+  const fallback = (rules || [])
+    .filter((r) => {
+      const p = Number(r?.precio_por_cantidad);
+      const min = Number(r?.cantidad_min);
+      if (!(p > 0) || !(min > 0)) return false;
+      return qty >= min;
+    })
+    .sort((a, b) => Number(b.cantidad_min) - Number(a.cantidad_min));
+
+  return fallback[0] || null;
 }
+
+
 
 function pickBestBoxRule(rules = [], qty) {
   const candidates = (rules || [])
@@ -100,7 +114,7 @@ function calcSmartSubtotalCents(item) {
     lineSubtotalCents = boxes * boxPriceCents + remainder * tierUnitCents;
 
     // unitario referencial para UI (precio por unidad dentro de la caja)
-    appliedUnitCents = Math.round(boxPriceCents / unitsPerBox);
+    appliedUnitCents = qty > 0 ? Math.round(lineSubtotalCents / qty) : tierUnitCents;
 
     pricingLabel =
       remainder > 0 ? `${boxes} caja(s) + ${remainder} und` : `${boxes} caja(s)`;

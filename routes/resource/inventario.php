@@ -5,60 +5,69 @@ use App\Http\Controllers\Inventory\InventoryController;
 
 /*
 |--------------------------------------------------------------------------
-| RUTAS DE VISTAS (BLADE)
+| INVENTARIO (solo supervisor|admin)
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('inventario')->group(function () {
+Route::middleware(['auth', 'role:supervisor|admin'])
+    ->prefix('inventario')
+    ->group(function () {
 
-    // Vista principal del módulo Inventario
-    Route::get('/', [InventoryController::class, 'viewIndex'])
-        ->name('inventario.index');
+        /*
+        |--------------------------------------------------------------------------
+        | RUTAS DE VISTAS (BLADE)
+        |--------------------------------------------------------------------------
+        */
 
-    // Vista listado de stock
-    Route::get('/stock', [InventoryController::class, 'viewStock'])
-        ->name('inventario.stock');
+        // Vista principal del módulo Inventario
+        Route::get('/', [InventoryController::class, 'viewIndex'])
+            ->name('inventario.index');
 
-    /*
-    |--------------------------------------------------------------------------
-    | RUTAS FUNCIONALES (JSON: CRUD + STOCK)
-    |--------------------------------------------------------------------------
-    */
+        // Vista listado de stock
+        Route::get('/stock', [InventoryController::class, 'viewStock'])
+            ->name('inventario.stock');
 
-    // Listar inventario (JSON)
-    Route::get('/list', [InventoryController::class, 'index']);
+        // Vista historial de ajustes
+        Route::get('/historial', [InventoryController::class, 'viewHistory'])
+            ->name('inventario.historial');
 
-    // Ver inventario por ID
-    Route::get('/item/{id}', [InventoryController::class, 'show']);
+        /*
+        |--------------------------------------------------------------------------
+        | RUTAS FUNCIONALES (JSON: CRUD + STOCK)
+        |--------------------------------------------------------------------------
+        */
 
-    // Buscar inventario por producto
-    Route::get('/producto/{productoId}', [InventoryController::class, 'getByProduct']);
+        // Listar inventario (JSON)
+        Route::get('/list', [InventoryController::class, 'index']);
 
-    // Buscar inventario por bodega
-    Route::get('/bodega/{bodegaId}', [InventoryController::class, 'getByBodega']);
+        // Ver inventario por ID
+        Route::get('/item/{id}', [InventoryController::class, 'show']);
 
-    // Crear inventario
-    Route::post('/store', [InventoryController::class, 'store']);
+        // Buscar inventario por producto
+        Route::get('/producto/{productoId}', [InventoryController::class, 'getByProduct']);
 
-    // Actualizar inventario
-    Route::put('/update/{id}', [InventoryController::class, 'update']);
+        // Buscar inventario por bodega
+        Route::get('/bodega/{bodegaId}', [InventoryController::class, 'getByBodega']);
 
-    // Eliminar inventario
-    Route::delete('/delete/{id}', [InventoryController::class, 'destroy']);
+        // Crear inventario
+        Route::post('/store', [InventoryController::class, 'store']);
 
-    // Aumentar stock
-    Route::post('/increase', [InventoryController::class, 'increaseStock']);
+        // Actualizar inventario
+        Route::put('/update/{id}', [InventoryController::class, 'update']);
 
-    // Disminuir stock
-    Route::post('/decrease', [InventoryController::class, 'decreaseStock']);
+        // Eliminar inventario
+        Route::delete('/delete/{id}', [InventoryController::class, 'destroy']);
 
-    // Ajustar stock (valor absoluto con registro en ajustes_inventario)
-    Route::post('/adjust', [InventoryController::class, 'adjustStock'])
-        ->name('inventario.adjust');
+        // Aumentar stock
+        Route::post('/increase', [InventoryController::class, 'increaseStock']);
 
-    Route::get('/historial', [InventoryController::class, 'viewHistory'])
-    ->name('inventario.historial');
+        // Disminuir stock
+        Route::post('/decrease', [InventoryController::class, 'decreaseStock']);
 
-    Route::get('/historial/data', [InventoryController::class, 'adjustmentsHistory']);
+        // Ajustar stock (valor absoluto con registro en ajustes_inventario)
+        Route::post('/adjust', [InventoryController::class, 'adjustStock'])
+            ->name('inventario.adjust');
 
-});
+        // Data del historial
+        Route::get('/historial/data', [InventoryController::class, 'adjustmentsHistory']);
+    });
