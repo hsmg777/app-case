@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 use SoapClient;
 use RobRichards\XMLSecLibs\XMLSecurityDSig;
 use RobRichards\XMLSecLibs\XMLSecurityKey;
+use App\Models\Sri\ElectronicInvoice;
+
 
 
 class SriInvoiceService
@@ -21,6 +23,24 @@ class SriInvoiceService
         private SriConfigService $configService,
         private ElectronicInvoiceRepository $repo
     ) {}
+
+    public function getInvoiceBySaleId(int $saleId): ?ElectronicInvoice
+    {
+        return $this->repo->findBySaleId($saleId);
+    }
+
+    public function markInvoiceError(int $saleId, string $message): void
+    {
+        $inv = $this->repo->findBySaleId($saleId);
+        if (!$inv) return;
+
+        $inv->mensaje_error = mb_substr($message, 0, 2000);
+        // Opcional: para que se vea como pendiente de reintento en UI
+        if (!in_array(strtoupper((string)$inv->estado_sri), ['AUTORIZADO','RECHAZADO'], true)) {
+            $inv->estado_sri = 'PENDIENTE_REINTENTO';
+        }
+        $inv->save();
+    }
 
    
     public function generateXmlForSale(int $saleId)

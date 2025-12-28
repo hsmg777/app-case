@@ -18,12 +18,14 @@ class ElectronicInvoice extends Model
         'xml_generado_path',
         'xml_firmado_path',
         'xml_autorizado_path',
+        'ride_pdf_path',
         'estado_sri',
         'numero_autorizacion',
         'fecha_autorizacion',
         'mensaje_error',
         'mensajes_sri_json',
     ];
+
 
    protected $casts = [
         'fecha_autorizacion' => 'datetime',

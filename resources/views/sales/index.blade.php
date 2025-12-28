@@ -118,19 +118,6 @@
 
                                 <input type="hidden" id="bodega_id" value="{{ $bodegaSelected->id }}">
                             </div>
-
-
-                            <div class="flex flex-col space-y-1">
-                                <label class="text-[11px] tracking-wide font-semibold text-slate-500 uppercase">
-                                    N° documento (opcional)
-                                </label>
-                                <input
-                                    type="text"
-                                    id="num_factura"
-                                    class="border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm h-10"
-                                    placeholder="Se puede autogenerar luego"
-                                >
-                            </div>
                         </div>
                     </div>
 

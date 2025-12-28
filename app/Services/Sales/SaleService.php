@@ -10,8 +10,8 @@ use Illuminate\Validation\ValidationException;
 use App\Models\Sales\Sale;
 use App\Services\Cashier\CashierService;
 use App\Models\Clients\ClientEmail;
+use App\Jobs\ProcessSriInvoiceJob;
 use App\Services\Sri\SriInvoiceService;
-
 
 
 class SaleService
@@ -24,6 +24,7 @@ class SaleService
         InventoryService $inventory,
         private CashierService $cashier,
         private SriInvoiceService $sriInvoiceService,
+
     ) {
         $this->sales     = $sales;
         $this->inventory = $inventory;
@@ -59,10 +60,8 @@ class SaleService
                 ]);
             }
 
-        
             $ivaEnabled = (bool)($data['iva_enabled'] ?? true);
 
-        
             $toCents = function ($n): int {
                 $n = $n ?? 0;
                 return (int) round(((float) $n) * 100, 0, PHP_ROUND_HALF_UP);
@@ -79,7 +78,6 @@ class SaleService
                 return (int) round($p * 100, 0, PHP_ROUND_HALF_UP);
             };
 
-        
             $subtotalCents  = 0;
             $descuentoCents = 0;
             $ivaCents       = 0;
@@ -137,7 +135,6 @@ class SaleService
                 }
 
                 $ivaPctFinal = $ivaEnabled ? (float) $ivaPctProducto : 0.0;
-
                 $bp = $toBp($ivaPctFinal);
 
                 $lineIvaCts = (int) floor(($lineBaseCts * $bp + 5000) / 10000);
@@ -149,7 +146,6 @@ class SaleService
                 $item['pricing_price_id'] = $pricing['price_id'] ?? null;
 
                 $item['total'] = $fromCents($lineBaseCts);
-
 
                 $subtotalCents  += $lineSubtotalCts;
                 $descuentoCents += $descCts;
@@ -184,9 +180,8 @@ class SaleService
                 if (!$emailDestino) {
                     $emailDestino = ClientEmail::where('id', $clientEmailId)->value('email');
                 }
-            }        
+            }
 
-        
             $saleData = [
                 'client_id'       => $clientId,
                 'user_id'         => $data['user_id'],
@@ -195,7 +190,7 @@ class SaleService
                 'bodega_id'       => $data['bodega_id'],
                 'fecha_venta'     => $data['fecha_venta'],
                 'tipo_documento'  => $data['tipo_documento'] ?? 'FACTURA',
-                'num_factura'     => $data['num_factura'] ?? null,
+                'num_factura'     => $data['num_factura'] ?? null, // normalmente null
                 'subtotal'        => $subtotal,
                 'descuento'       => $descuentoTotal,
                 'impuesto'        => $impuesto,
@@ -205,13 +200,11 @@ class SaleService
                 'observaciones'   => $data['observaciones'] ?? null,
             ];
 
+            // 1) Creo la venta
             $sale = $this->sales->createSale($saleData);
 
-        
-            $vendioSinStock = false;
-
+            // 2) Guardo items (AÚN SIN descontar stock)
             foreach ($items as $item) {
-
                 $this->sales->addItem($sale, [
                     'producto_id'     => $item['producto_id'],
                     'descripcion'     => $item['descripcion'],
@@ -221,7 +214,46 @@ class SaleService
                     'iva_porcentaje'  => $item['iva_porcentaje'] ?? 0,
                     'total'           => $item['total'], // sin IVA
                 ]);
+            }
 
+            // 3) Pago
+            $montoRecibido = (float)($payment['monto_recibido'] ?? $total);
+            $cambio        = $montoRecibido - $total;
+
+            if ($montoRecibido < $total) {
+                throw ValidationException::withMessages([
+                    'payment.monto_recibido' => 'El monto recibido no puede ser menor al total de la venta.',
+                ]);
+            }
+
+            $metodoPago     = (string)($payment['metodo'] ?? '');
+            $metodoPagoNorm = strtoupper(trim($metodoPago));
+
+            $this->sales->addPayment($sale, [
+                'fecha_pago'        => $payment['fecha_pago'] ?? now(),
+                'monto'             => $total,
+                'metodo'            => $metodoPago,
+                'payment_method_id' => $payment['payment_method_id'] ?? null,
+                'referencia'        => $payment['referencia'] ?? null,
+                'observaciones'     => $payment['observaciones'] ?? null,
+                'monto_recibido'    => $montoRecibido,
+                'cambio'            => $cambio,
+                'usuario_id'        => $data['user_id'],
+            ]);
+
+            // 4) Marco como pagada
+            $this->sales->updateEstado($sale, 'pagada');
+
+            // 5) ✅ Genero el num_factura (aquí se setea en sales.num_factura)
+            if (($sale->tipo_documento ?? 'FACTURA') === 'FACTURA') {
+                $this->sriInvoiceService->generateXmlForSale($sale->id);
+                $sale->refresh(); // ✅ ahora $sale->num_factura ya existe
+            }
+
+            // 6) ✅ Recién AHORA descuento stock (ya con num_factura real)
+            $vendioSinStock = false;
+
+            foreach ($items as $item) {
                 $teniaStock = $this->inventory->decreaseStockForSale(
                     $item['producto_id'],
                     $data['bodega_id'],
@@ -237,35 +269,7 @@ class SaleService
                 }
             }
 
-        
-            $montoRecibido = (float)($payment['monto_recibido'] ?? $total);
-            $cambio        = $montoRecibido - $total;
-
-            if ($montoRecibido < $total) {
-                throw ValidationException::withMessages([
-                    'payment.monto_recibido' => 'El monto recibido no puede ser menor al total de la venta.',
-                ]);
-            }
-
-            $metodoPago     = (string)($payment['metodo'] ?? '');
-            $metodoPagoNorm = strtoupper(trim($metodoPago));
-
-            $this->sales->addPayment($sale, [
-                'fecha_pago'        => $payment['fecha_pago'] ?? now(),
-                'monto'             => $total, // incluye IVA
-                'metodo'            => $metodoPago,
-                'payment_method_id' => $payment['payment_method_id'] ?? null,
-                'referencia'        => $payment['referencia'] ?? null,
-                'observaciones'     => $payment['observaciones'] ?? null,
-                'monto_recibido'    => $montoRecibido,
-                'cambio'            => $cambio,
-                'usuario_id'        => $data['user_id'],
-            ]);
-
-        
-            $this->sales->updateEstado($sale, 'pagada');
-
-
+            // 7) Caja (si es efectivo)
             $isCash = in_array($metodoPagoNorm, ['EFECTIVO', 'CASH'], true);
 
             if ($isCash) {
@@ -279,43 +283,18 @@ class SaleService
                 );
             }
 
-            // ==========================
-            //  SRI: XML + (FIRMADO) + ENVÍO/AUTORIZACIÓN
-            // ==========================
-            try {
-                if (($sale->tipo_documento ?? 'FACTURA') === 'FACTURA') {
-
-                    $inv = $this->sriInvoiceService->generateXmlForSale((int) $sale->id);
-
-                    $this->sriInvoiceService->signXmlForSale((int) $sale->id);
-
-                    $inv = $this->sriInvoiceService->sendAndAuthorizeForSale((int) $sale->id);
-
-
-
-                    $sale->setAttribute('sri_estado', $inv->estado_sri ?? null);
-                    $sale->setAttribute('sri_clave_acceso', $inv->clave_acceso ?? null);
-                    $sale->setAttribute('sri_numero_autorizacion', $inv->numero_autorizacion ?? null);
-                    $sale->setAttribute('sri_fecha_autorizacion', $inv->fecha_autorizacion ?? null);
-                }
-            } catch (\Throwable $e) {
-                \Log::error('SRI flow failed', [
-                    'sale_id' => $sale->id ?? null,
-                    'error'   => $e->getMessage(),
-                ]);
-
-                $sale->setAttribute('sri_estado', 'ERROR_SRI');
-                $sale->setAttribute('sri_error', 'No se pudo completar el flujo SRI (XML/Firma/Envío). Revisa logs/config.');
+            // 8) Job SRI completo (firma + envío + autorización + correo)
+            if (($sale->tipo_documento ?? 'FACTURA') === 'FACTURA') {
+                ProcessSriInvoiceJob::dispatch($sale->id)->afterCommit();
             }
-
 
             $sale = $this->sales->findById($sale->id);
             $sale->setAttribute('vendio_sin_stock', $vendioSinStock);
 
             return $sale;
-
         });
     }
+
 
     public function getById(int $id): ?Sale
     {
