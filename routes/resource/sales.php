@@ -10,7 +10,7 @@ use App\Http\Controllers\Sales\SalePrintController;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'role:cashier|admin'])->group(function () {
+Route::middleware(['auth', 'role:cashier|admin|supervisor'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------

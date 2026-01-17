@@ -22,7 +22,8 @@ class SriInvoiceService
     public function __construct(
         private SriConfigService $configService,
         private ElectronicInvoiceRepository $repo
-    ) {}
+    ) {
+    }
 
     public function getInvoiceBySaleId(int $saleId): ?ElectronicInvoice
     {
@@ -32,17 +33,18 @@ class SriInvoiceService
     public function markInvoiceError(int $saleId, string $message): void
     {
         $inv = $this->repo->findBySaleId($saleId);
-        if (!$inv) return;
+        if (!$inv)
+            return;
 
         $inv->mensaje_error = mb_substr($message, 0, 2000);
         // Opcional: para que se vea como pendiente de reintento en UI
-        if (!in_array(strtoupper((string)$inv->estado_sri), ['AUTORIZADO','RECHAZADO'], true)) {
+        if (!in_array(strtoupper((string) $inv->estado_sri), ['AUTORIZADO', 'RECHAZADO'], true)) {
             $inv->estado_sri = 'PENDIENTE_REINTENTO';
         }
         $inv->save();
     }
 
-   
+
     public function generateXmlForSale(int $saleId)
     {
         return DB::transaction(function () use ($saleId) {
@@ -66,32 +68,33 @@ class SriInvoiceService
             }
 
             /** @var SriConfig $cfg */
-            $cfg = $this->configService->getOrFailForUpdate(); 
+            $cfg = $this->configService->getOrFailForUpdate();
 
-            $estab = str_pad((string)($cfg->codigo_establecimiento ?? '001'), 3, '0', STR_PAD_LEFT);
-            $pto   = str_pad((string)($cfg->codigo_punto_emision ?? '001'), 3, '0', STR_PAD_LEFT);
+            $estab = str_pad((string) ($cfg->codigo_establecimiento ?? '001'), 3, '0', STR_PAD_LEFT);
+            $pto = str_pad((string) ($cfg->codigo_punto_emision ?? '001'), 3, '0', STR_PAD_LEFT);
 
-            $seq = (int)($cfg->secuencial_factura_actual ?? 1);
-            if ($seq <= 0) $seq = 1;
+            $seq = (int) ($cfg->secuencial_factura_actual ?? 1);
+            if ($seq <= 0)
+                $seq = 1;
 
-            $secuencial = str_pad((string)$seq, 9, '0', STR_PAD_LEFT);
+            $secuencial = str_pad((string) $seq, 9, '0', STR_PAD_LEFT);
             $serie = $estab . $pto;
 
             $numFactura = "{$estab}-{$pto}-{$secuencial}";
             $sale->num_factura = $sale->num_factura ?: $numFactura;
             $sale->save();
 
-    
-            $fecha = Carbon::parse($sale->fecha_venta)->format('dmY');
-            $codDoc = '01'; 
-            $ruc = preg_replace('/\D+/', '', (string)$cfg->ruc);
-            $ambiente = (string)($cfg->ambiente ?? 1); // 1 pruebas, 2 prod
-            $tipoEmision = '1';
-            $codigoNumerico = str_pad((string)random_int(0, 99999999), 8, '0', STR_PAD_LEFT);
 
-            $claveSinDv = $fecha.$codDoc.$ruc.$ambiente.$serie.$secuencial.$codigoNumerico.$tipoEmision;
+            $fecha = Carbon::parse($sale->fecha_venta)->format('dmY');
+            $codDoc = '01';
+            $ruc = preg_replace('/\D+/', '', (string) $cfg->ruc);
+            $ambiente = (string) ($cfg->ambiente ?? 1); // 1 pruebas, 2 prod
+            $tipoEmision = '1';
+            $codigoNumerico = str_pad((string) random_int(0, 99999999), 8, '0', STR_PAD_LEFT);
+
+            $claveSinDv = $fecha . $codDoc . $ruc . $ambiente . $serie . $secuencial . $codigoNumerico . $tipoEmision;
             $dv = $this->modulo11($claveSinDv);
-            $claveAcceso = $claveSinDv.$dv;
+            $claveAcceso = $claveSinDv . $dv;
 
             $xmlString = $this->buildFacturaXml($sale, $cfg, $claveAcceso, $estab, $pto, $secuencial);
 
@@ -102,8 +105,8 @@ class SriInvoiceService
             Storage::disk('local')->put($xmlPath, $xmlString);
 
             $invoice = $this->repo->create([
-                'sale_id'           => $sale->id,
-                'clave_acceso'      => $claveAcceso,
+                'sale_id' => $sale->id,
+                'clave_acceso' => $claveAcceso,
                 'xml_generado_path' => $xmlPath,
                 'estado_sri' => 'PENDIENTE_ENVIO',
             ]);
@@ -132,89 +135,152 @@ class SriInvoiceService
                 $invoice = $this->generateXmlForSale($sale->id);
             }
 
-            if (strtoupper((string)($invoice->estado_sri ?? '')) === 'AUTORIZADO') {
+            if (strtoupper((string) ($invoice->estado_sri ?? '')) === 'AUTORIZADO') {
                 return $invoice;
             }
 
-            $signedPath = $invoice->xml_firmado_path ?? null;
-            if (!$signedPath || !Storage::disk('local')->exists($signedPath)) {
-                throw ValidationException::withMessages([
-                    'sri' => 'Falta el XML firmado (xml_firmado_path). Ejecuta el Paso 3 (firmado) antes del Paso 4.',
-                ]);
+            // --- LOGICA DE ENVIO Y AUTORIZACION (HOTFIX ERROR 70) ---
+
+            // Si ya está ENVIADO o EN_PROCESO, saltamos la recepción para sólo consultar autorización
+            $currentState = strtoupper((string) ($invoice->estado_sri ?? ''));
+            $skipReception = in_array($currentState, ['ENVIADO', 'EN_PROCESO']);
+
+            if (!$skipReception) {
+                $signedPath = $invoice->xml_firmado_path ?? null;
+                if (!$signedPath || !Storage::disk('local')->exists($signedPath)) {
+                    throw ValidationException::withMessages([
+                        'sri' => 'Falta el XML firmado (xml_firmado_path). Ejecuta el Paso 3 (firmado) antes del Paso 4.',
+                    ]);
+                }
+
+                $cfg = $this->getCfgOrFail();
+                $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
+                $signedXml = Storage::disk('local')->get($signedPath);
+
+                $recep = $this->callRecepcion($urls['reception_wsdl'], $signedXml);
+
+                // Check Error 70 (En procesamiento)
+                if ($this->hasProcessing70($recep)) {
+                    $invoice->estado_sri = 'EN_PROCESO';
+                    $invoice->save();
+                    return ['status' => 'PROCESSING'];
+                }
+
+                if (!$this->isRecibida($recep)) {
+                    // Si falló y NO es 70, entonces sí es RECHAZADO
+                    $invoice->estado_sri = 'RECHAZADO';
+                    $invoice->mensajes_sri_json = $recep['mensajes'] ?? [];
+                    $invoice->save();
+                    return ['status' => 'REJECTED', 'recep' => $recep];
+                }
+
+                // SI PASO RECEPCION
+                $invoice->estado_sri = 'ENVIADO';
+                $invoice->mensajes_sri_json = $recep['mensajes'] ?? [];
+                $invoice->save();
             }
 
+            // --- ETAPA AUTORIZACION ---
+            // Recuperamos URLs de nuevo por si skipped reception
             $cfg = $this->getCfgOrFail();
-            $urls = $this->getWsdlUrls((int)($cfg->ambiente ?? 1));
+            $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
 
-            $signedXml = Storage::disk('local')->get($signedPath);
-
-            $recep = $this->callRecepcion($urls['reception_wsdl'], $signedXml);
-
-            $estadoRecep = strtoupper((string)($recep['estado'] ?? ''));
-            $mensajesRecep = $recep['mensajes'] ?? [];
-
-            if ($estadoRecep === 'RECIBIDA') {
-                $invoice->estado_sri = 'ENVIADO'; 
-            } elseif ($estadoRecep === 'DEVUELTA') {
-                $invoice->estado_sri = 'RECHAZADO';
-            } else {
-                $invoice->estado_sri = 'RECHAZADO';
-            }
-
-            $invoice->mensajes_sri_json = $mensajesRecep;
-            $invoice->save();
-
-            if ($estadoRecep !== 'RECIBIDA') {
-                return $invoice->fresh();
-            }
-
-            $claveAcceso = (string)($invoice->clave_acceso ?? '');
+            $claveAcceso = (string) ($invoice->clave_acceso ?? '');
             if ($claveAcceso === '') {
-                throw ValidationException::withMessages([
-                    'sri' => 'No existe clave_acceso en electronic_invoices.',
-                ]);
+                // Esto no debería pasar si llegó hasta aquí
+                return ['status' => 'ERROR', 'message' => 'Sin clave de acceso'];
             }
 
             $auth = $this->callAutorizacion($urls['authorization_wsdl'], $claveAcceso);
-            $estadoAuth = strtoupper((string)($auth['estado'] ?? ''));
-            $mensajesAuth = $auth['mensajes'] ?? [];
-            $xmlAutorizado = $auth['xml_autorizado'] ?? null;
-            $fechaAut = $auth['fecha_autorizacion'] ?? null;
-            $numAut = $auth['numero_autorizacion'] ?? null;
 
-            if ($estadoAuth === 'AUTORIZADO') {
-                $invoice->estado_sri = 'AUTORIZADO';
-            } elseif ($estadoAuth === 'NO AUTORIZADO') {
-                $invoice->estado_sri = 'RECHAZADO';
-            } elseif ($estadoAuth === 'SIN_RESPUESTA') {
-                $invoice->estado_sri = 'ENVIADO'; 
-            } else {
-                $invoice->estado_sri = 'RECHAZADO';
+            if ($this->authStillProcessing($auth)) {
+                $invoice->estado_sri = 'EN_PROCESO';
+                $invoice->save();
+                return ['status' => 'PROCESSING'];
             }
 
-            $invoice->mensajes_sri_json = $mensajesAuth;
-
-            if ($numAut) {
-                $invoice->numero_autorizacion = $numAut;
-            }
-            if ($fechaAut) {
-                $invoice->fecha_autorizacion = $fechaAut;
-            }
-
-            if ($invoice->estado_sri === 'AUTORIZADO' && $xmlAutorizado) {
-                $dir = "sri/xml/autorizados";
-                Storage::disk('local')->makeDirectory($dir);
-
-                $pathAut = "{$dir}/{$claveAcceso}.xml";
-                Storage::disk('local')->put($pathAut, $xmlAutorizado);
-
-                $invoice->xml_autorizado_path = $pathAut;
-            }
-
-            $invoice->save();
-
-            return $invoice->fresh();
+            // Procesar resultado final (Autorizado / Rechazado / etc)
+            return $this->applyAuthorizationResult($invoice, $auth);
         });
+    }
+
+    private function hasProcessing70(array $recep): bool
+    {
+        $mensajes = $recep['mensajes'] ?? [];
+        foreach ($mensajes as $m) {
+            $id = (string) ($m['identificador'] ?? '');
+            $msg = strtoupper((string) ($m['mensaje'] ?? ''));
+            // A veces el ID es 70, a veces el mensaje contiene el texto
+            if ($id === '70' || str_contains($msg, 'CLAVE DE ACCESO EN PROCESAMIENTO')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isRecibida(array $recep): bool
+    {
+        return strtoupper((string) ($recep['estado'] ?? '')) === 'RECIBIDA';
+    }
+
+    private function authStillProcessing(array $auth): bool
+    {
+        $estado = strtoupper((string) ($auth['estado'] ?? ''));
+        if ($estado === 'EN PROCESO' || $estado === 'EN_PROCESAMIENTO')
+            return true;
+
+        // A veces viene dentro de 'autorizaciones'
+        // Chequear array de autorizaciones (si soap devolvió estructura)
+        // En mi callAutorizacion retorno 'mensajes', 'xml_autorizado', etc.
+        // Pero si "estado" global dice AUTORIZADO, ok. 
+        // Si dice SIN_RESPUESTA podría ser timeout -> PROCESSING? 
+        // El user sugirió: ($est === '' || $est === 'EN PROCESO'...)
+        // En mi logica callAutorizacion devuelve 'estado' top level.
+        return false;
+    }
+
+    private function applyAuthorizationResult(ElectronicInvoice $invoice, array $auth): array
+    {
+        $estadoAuth = strtoupper((string) ($auth['estado'] ?? ''));
+        $mensajesAuth = $auth['mensajes'] ?? [];
+        $xmlAutorizado = $auth['xml_autorizado'] ?? null;
+        $fechaAut = $auth['fecha_autorizacion'] ?? null;
+        $numAut = $auth['numero_autorizacion'] ?? null;
+
+        if ($estadoAuth === 'AUTORIZADO') {
+            $invoice->estado_sri = 'AUTORIZADO';
+        } elseif ($estadoAuth === 'NO AUTORIZADO') {
+            $invoice->estado_sri = 'RECHAZADO';
+        } elseif ($estadoAuth === 'SIN_RESPUESTA') {
+            // Si el SRI no responde nada útil, lo mantenemos pendiente
+            // Podríamos devolver PROCESSING
+            $invoice->estado_sri = 'EN_PROCESO';
+            $invoice->save();
+            return ['status' => 'PROCESSING'];
+        } else {
+            $invoice->estado_sri = 'RECHAZADO';
+        }
+
+        $invoice->mensajes_sri_json = $mensajesAuth;
+
+        if ($numAut) {
+            $invoice->numero_autorizacion = $numAut;
+        }
+        if ($fechaAut) {
+            $invoice->fecha_autorizacion = $fechaAut;
+        }
+
+        if ($invoice->estado_sri === 'AUTORIZADO' && $xmlAutorizado) {
+            $dir = "sri/xml/autorizados";
+            Storage::disk('local')->makeDirectory($dir);
+            $pathAut = "{$dir}/{$invoice->clave_acceso}.xml";
+            Storage::disk('local')->put($pathAut, $xmlAutorizado);
+            $invoice->xml_autorizado_path = $pathAut;
+        }
+
+        $invoice->save();
+
+        return ['status' => $invoice->estado_sri, 'invoice' => $invoice->fresh()];
     }
 
     private function getCfgOrFail(): SriConfig
@@ -234,13 +300,13 @@ class SriInvoiceService
     {
         if ($ambiente === 2) {
             return [
-                'reception_wsdl'     => 'https://cel.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl',
+                'reception_wsdl' => 'https://cel.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl',
                 'authorization_wsdl' => 'https://cel.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline?wsdl',
             ];
         }
 
         return [
-            'reception_wsdl'     => 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl',
+            'reception_wsdl' => 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl',
             'authorization_wsdl' => 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline?wsdl',
         ];
     }
@@ -299,12 +365,14 @@ class SriInvoiceService
 
             return [
                 'estado' => 'ERROR_RECEPCION',
-                'mensajes' => [[
-                    'identificador' => null,
-                    'mensaje' => 'Error al conectar con SRI (recepción).',
-                    'informacionAdicional' => $e->getMessage(),
-                    'tipo' => 'ERROR',
-                ]],
+                'mensajes' => [
+                    [
+                        'identificador' => null,
+                        'mensaje' => 'Error al conectar con SRI (recepción).',
+                        'informacionAdicional' => $e->getMessage(),
+                        'tipo' => 'ERROR',
+                    ]
+                ],
             ];
         }
     }
@@ -330,12 +398,14 @@ class SriInvoiceService
                     'fecha_autorizacion' => null,
                     'numero_autorizacion' => null,
                     'xml_autorizado' => null,
-                    'mensajes' => [[
-                        'identificador' => null,
-                        'mensaje' => 'SRI no devolvió autorización aún.',
-                        'informacionAdicional' => null,
-                        'tipo' => 'INFO',
-                    ]],
+                    'mensajes' => [
+                        [
+                            'identificador' => null,
+                            'mensaje' => 'SRI no devolvió autorización aún.',
+                            'informacionAdicional' => null,
+                            'tipo' => 'INFO',
+                        ]
+                    ],
                 ];
             }
 
@@ -378,32 +448,36 @@ class SriInvoiceService
                 'fecha_autorizacion' => null,
                 'numero_autorizacion' => null,
                 'xml_autorizado' => null,
-                'mensajes' => [[
-                    'identificador' => null,
-                    'mensaje' => 'Error al conectar con SRI (autorización).',
-                    'informacionAdicional' => $e->getMessage(),
-                    'tipo' => 'ERROR',
-                ]],
+                'mensajes' => [
+                    [
+                        'identificador' => null,
+                        'mensaje' => 'Error al conectar con SRI (autorización).',
+                        'informacionAdicional' => $e->getMessage(),
+                        'tipo' => 'ERROR',
+                    ]
+                ],
             ];
         }
     }
 
     private function modulo11(string $base): int
     {
-        $multipliers = [2,3,4,5,6,7];
+        $multipliers = [2, 3, 4, 5, 6, 7];
         $sum = 0;
         $m = 0;
 
         for ($i = strlen($base) - 1; $i >= 0; $i--) {
-            $digit = (int)$base[$i];
+            $digit = (int) $base[$i];
             $sum += $digit * $multipliers[$m];
             $m = ($m + 1) % count($multipliers);
         }
 
         $mod = $sum % 11;
         $dv = 11 - $mod;
-        if ($dv === 11) return 0;
-        if ($dv === 10) return 1;
+        if ($dv === 11)
+            return 0;
+        if ($dv === 10)
+            return 1;
         return $dv;
     }
 
@@ -415,10 +489,11 @@ class SriInvoiceService
             return ['07', '9999999999999', 'CONSUMIDOR FINAL'];
         }
 
-        $nombre = trim((string)($client->nombre ?? ''));
-        if ($nombre === '') $nombre = 'CLIENTE';
+        $nombre = trim((string) ($client->nombre ?? ''));
+        if ($nombre === '')
+            $nombre = 'CLIENTE';
 
-        $rawId = trim((string)($client->identificacion ?? ''));
+        $rawId = trim((string) ($client->identificacion ?? ''));
 
         if ($rawId === '') {
             throw ValidationException::withMessages([
@@ -444,18 +519,18 @@ class SriInvoiceService
     }
 
 
-   
+
     private function buildFacturaXml(Sale $sale, SriConfig $cfg, string $claveAcceso, string $estab, string $pto, string $secuencial): string
     {
         $razonSocial = $cfg->razon_social ?? 'EMISOR';
         $nombreComercial = $cfg->nombre_comercial ?? $razonSocial;
         $dirMatriz = $cfg->direccion_matriz ?? 'S/D';
 
-       [$tipoIdComprador, $compradorId, $compradorNombre] = $this->resolveCompradorSri($sale);
+        [$tipoIdComprador, $compradorId, $compradorNombre] = $this->resolveCompradorSri($sale);
 
         $fechaEmision = Carbon::parse($sale->fecha_venta)->format('d/m/Y');
 
-       
+
         $totalSinImpuestosN = 0.0;
         $totalDescuentoN = 0.0;
         $ivaTotalN = 0.0;
@@ -464,7 +539,7 @@ class SriInvoiceService
         foreach ($sale->items as $it) {
             $base = round((float) $it->total, 2);
             $desc = round((float) ($it->descuento ?? 0), 2);
-            $pct  = round((float) ($it->iva_porcentaje ?? 0), 2);
+            $pct = round((float) ($it->iva_porcentaje ?? 0), 2);
 
             $ivaLinea = round($base * ($pct / 100), 2);
 
@@ -477,19 +552,19 @@ class SriInvoiceService
             if (!isset($totalesIva[$codigoPorcentajeLinea])) {
                 $totalesIva[$codigoPorcentajeLinea] = [
                     'tarifa' => number_format($pct, 2, '.', ''),
-                    'base'   => 0.0,
-                    'valor'  => 0.0,
+                    'base' => 0.0,
+                    'valor' => 0.0,
                 ];
             }
 
-            $totalesIva[$codigoPorcentajeLinea]['base']  += $base;
+            $totalesIva[$codigoPorcentajeLinea]['base'] += $base;
             $totalesIva[$codigoPorcentajeLinea]['valor'] += $ivaLinea;
         }
 
         $totalSinImpuestos = number_format($totalSinImpuestosN, 2, '.', '');
-        $totalDescuento    = number_format($totalDescuentoN, 2, '.', '');
-        $ivaTotal          = number_format($ivaTotalN, 2, '.', '');
-        $importeTotal      = number_format($totalSinImpuestosN + $ivaTotalN, 2, '.', '');
+        $totalDescuento = number_format($totalDescuentoN, 2, '.', '');
+        $ivaTotal = number_format($ivaTotalN, 2, '.', '');
+        $importeTotal = number_format($totalSinImpuestosN + $ivaTotalN, 2, '.', '');
 
         $xml = new \DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
@@ -499,15 +574,15 @@ class SriInvoiceService
         $factura->setAttribute('version', '1.1.0');
         $xml->appendChild($factura);
 
-     
+
         $infoTrib = $xml->createElement('infoTributaria');
         $factura->appendChild($infoTrib);
 
-        $infoTrib->appendChild($xml->createElement('ambiente', (string)($cfg->ambiente ?? 1)));
+        $infoTrib->appendChild($xml->createElement('ambiente', (string) ($cfg->ambiente ?? 1)));
         $infoTrib->appendChild($xml->createElement('tipoEmision', '1'));
         $infoTrib->appendChild($xml->createElement('razonSocial', $razonSocial));
         $infoTrib->appendChild($xml->createElement('nombreComercial', $nombreComercial));
-        $infoTrib->appendChild($xml->createElement('ruc', preg_replace('/\D+/', '', (string)$cfg->ruc)));
+        $infoTrib->appendChild($xml->createElement('ruc', preg_replace('/\D+/', '', (string) $cfg->ruc)));
         $infoTrib->appendChild($xml->createElement('claveAcceso', $claveAcceso));
         $infoTrib->appendChild($xml->createElement('codDoc', '01'));
         $infoTrib->appendChild($xml->createElement('estab', $estab));
@@ -515,7 +590,7 @@ class SriInvoiceService
         $infoTrib->appendChild($xml->createElement('secuencial', $secuencial));
         $infoTrib->appendChild($xml->createElement('dirMatriz', $dirMatriz));
 
-   
+
         $infoFac = $xml->createElement('infoFactura');
         $factura->appendChild($infoFac);
 
@@ -536,10 +611,10 @@ class SriInvoiceService
             $tci->appendChild($totalImp);
 
             $totalImp->appendChild($xml->createElement('codigo', '2'));
-            $totalImp->appendChild($xml->createElement('codigoPorcentaje', (string)$codigoPorcentaje));
-            $totalImp->appendChild($xml->createElement('baseImponible', number_format((float)$t['base'], 2, '.', '')));
+            $totalImp->appendChild($xml->createElement('codigoPorcentaje', (string) $codigoPorcentaje));
+            $totalImp->appendChild($xml->createElement('baseImponible', number_format((float) $t['base'], 2, '.', '')));
             $totalImp->appendChild($xml->createElement('tarifa', $codigoPorcentaje === '0' ? '0.00' : $t['tarifa']));
-            $totalImp->appendChild($xml->createElement('valor', number_format((float)$t['valor'], 2, '.', '')));
+            $totalImp->appendChild($xml->createElement('valor', number_format((float) $t['valor'], 2, '.', '')));
         }
 
         $infoFac->appendChild($xml->createElement('propina', '0.00'));
@@ -554,7 +629,7 @@ class SriInvoiceService
         }
 
         if ($payments->isEmpty()) {
-            $pago  = $xml->createElement('pago');
+            $pago = $xml->createElement('pago');
             $pago->appendChild($xml->createElement('formaPago', '01'));
             $pago->appendChild($xml->createElement('total', $importeTotal));
             $pago->appendChild($xml->createElement('plazo', '0'));
@@ -569,7 +644,8 @@ class SriInvoiceService
                     : $this->mapFormaPagoSri((string) ($p->metodo ?? ''));
 
                 $montoPago = round((float) ($p->monto ?? 0), 2);
-                if ($montoPago <= 0) $montoPago = round((float) $importeTotal, 2);
+                if ($montoPago <= 0)
+                    $montoPago = round((float) $importeTotal, 2);
 
                 $sum += $montoPago;
 
@@ -599,7 +675,7 @@ class SriInvoiceService
 
 
 
-  
+
         $detalles = $xml->createElement('detalles');
         $factura->appendChild($detalles);
 
@@ -607,12 +683,12 @@ class SriInvoiceService
             $det = $xml->createElement('detalle');
             $detalles->appendChild($det);
 
-            $det->appendChild($xml->createElement('codigoPrincipal', (string)($it->producto_id)));
-            $det->appendChild($xml->createElement('descripcion', (string)$it->descripcion));
-            $det->appendChild($xml->createElement('cantidad', number_format((float)$it->cantidad, 2, '.', '')));
-            $det->appendChild($xml->createElement('precioUnitario', number_format((float)$it->precio_unitario, 2, '.', '')));
-            $det->appendChild($xml->createElement('descuento', number_format((float)($it->descuento ?? 0), 2, '.', '')));
-            $det->appendChild($xml->createElement('precioTotalSinImpuesto', number_format((float)$it->total, 2, '.', '')));
+            $det->appendChild($xml->createElement('codigoPrincipal', (string) ($it->producto_id)));
+            $det->appendChild($xml->createElement('descripcion', (string) $it->descripcion));
+            $det->appendChild($xml->createElement('cantidad', number_format((float) $it->cantidad, 2, '.', '')));
+            $det->appendChild($xml->createElement('precioUnitario', number_format((float) $it->precio_unitario, 2, '.', '')));
+            $det->appendChild($xml->createElement('descuento', number_format((float) ($it->descuento ?? 0), 2, '.', '')));
+            $det->appendChild($xml->createElement('precioTotalSinImpuesto', number_format((float) $it->total, 2, '.', '')));
 
             $imps = $xml->createElement('impuestos');
             $det->appendChild($imps);
@@ -625,7 +701,7 @@ class SriInvoiceService
             $tarifaLinea = $codigoPorcentajeLinea === '0' ? '0.00' : number_format($pctLinea, 2, '.', '');
 
             $baseLinea = round((float) $it->total, 2);
-            $ivaLinea  = round($baseLinea * ($pctLinea / 100), 2);
+            $ivaLinea = round($baseLinea * ($pctLinea / 100), 2);
 
             $imp->appendChild($xml->createElement('codigo', '2'));
             $imp->appendChild($xml->createElement('codigoPorcentaje', $codigoPorcentajeLinea));
@@ -707,7 +783,8 @@ class SriInvoiceService
 
     private function resolveCertPath(string $envPath): string
     {
-        if ($envPath === '') return storage_path('app/sri/certs/certificado.p12');
+        if ($envPath === '')
+            return storage_path('app/sri/certs/certificado.p12');
 
         if (str_starts_with($envPath, '/')) {
             return $envPath;
@@ -835,7 +912,7 @@ class SriInvoiceService
         $dof->appendChild($mime);
         $sdp->appendChild($dof);
 
-   
+
         $signedSigProps = $sigDoc->createElementNS($xadesNS, 'xades:SignedSignatureProperties');
         foreach ($ssp->childNodes as $n) {
             $signedSigProps->appendChild($n->cloneNode(true));
@@ -869,7 +946,7 @@ class SriInvoiceService
         $refNodes = $dsig->sigNode->getElementsByTagNameNS($dsNS, 'Reference');
 
         foreach ($refNodes as $ref) {
-            $id  = $ref->getAttribute('Id');
+            $id = $ref->getAttribute('Id');
             $uri = $ref->getAttribute('URI');
 
             if ($id === $signedPropsRefId || $uri === "#{$signedPropsId}") {
@@ -901,8 +978,9 @@ class SriInvoiceService
 
     private function formatIssuerName(array $issuer): string
     {
-        if (!$issuer) return '';
-        $order = ['C','ST','L','O','OU','CN','emailAddress'];
+        if (!$issuer)
+            return '';
+        $order = ['C', 'ST', 'L', 'O', 'OU', 'CN', 'emailAddress'];
         $parts = [];
 
         foreach ($order as $k) {
@@ -913,7 +991,8 @@ class SriInvoiceService
         }
 
         foreach ($issuer as $k => $v) {
-            if (in_array($k, $order, true)) continue;
+            if (in_array($k, $order, true))
+                continue;
             $parts[] = $k . '=' . $v;
         }
 
@@ -922,10 +1001,14 @@ class SriInvoiceService
 
     private function sriCodigoPorcentajeIva(float $pct): string
     {
-        if ($pct <= 0) return '0';
-        if (abs($pct - 12.0) < 0.01) return '2';
-        if (abs($pct - 14.0) < 0.01) return '3';
-        if (abs($pct - 15.0) < 0.01) return '4';
+        if ($pct <= 0)
+            return '0';
+        if (abs($pct - 12.0) < 0.01)
+            return '2';
+        if (abs($pct - 14.0) < 0.01)
+            return '3';
+        if (abs($pct - 15.0) < 0.01)
+            return '4';
         return '4';
     }
 
@@ -933,11 +1016,14 @@ class SriInvoiceService
     {
         $m = strtoupper(trim($metodo));
 
-        if (str_contains($m, 'TRANSFER')) return '17';
-        if (str_contains($m, 'CRÉDITO') || str_contains($m, 'CREDITO')) return '19';
-        if (str_contains($m, 'DÉBITO') || str_contains($m, 'DEBITO')) return '16';
+        if (str_contains($m, 'TRANSFER'))
+            return '17';
+        if (str_contains($m, 'CRÉDITO') || str_contains($m, 'CREDITO'))
+            return '19';
+        if (str_contains($m, 'DÉBITO') || str_contains($m, 'DEBITO'))
+            return '16';
 
-        return '01'; 
+        return '01';
     }
 
 

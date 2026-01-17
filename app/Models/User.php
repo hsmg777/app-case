@@ -13,6 +13,11 @@ class User extends Authenticatable
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable, HasRoles;
 
+    public function bodega()
+    {
+        return $this->belongsTo(\App\Models\Store\Bodega::class, 'bodega_id');
+    }
+
     /**
      * The attributes that are mass assignable.
      *
@@ -22,6 +27,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'bodega_id',
     ];
 
     /**

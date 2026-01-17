@@ -28,16 +28,19 @@ class Product extends Model
         return $this->hasOne(\App\Models\Product\ProductPrice::class, 'producto_id');
     }
 
-    // ✅ RELACIÓN CORRECTA
     public function productPrices()
     {
         return $this->hasMany(\App\Models\Product\ProductPrice::class, 'producto_id');
     }
 
-    // ✅ (Opcional) Alias por si en algún lado viejo llamas product_prices()
     public function product_prices()
     {
         return $this->productPrices();
+    }
+
+    public function inventory()
+    {
+        return $this->hasMany(\App\Models\Inventory\Inventory::class, 'producto_id');
     }
 
     protected $casts = [

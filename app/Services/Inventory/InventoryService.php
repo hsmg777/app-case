@@ -18,7 +18,7 @@ class InventoryService
         InventoryRepository $repository,
         InventoryAdjustmentRepository $adjustmentRepository
     ) {
-        $this->repository           = $repository;
+        $this->repository = $repository;
         $this->adjustmentRepository = $adjustmentRepository;
     }
 
@@ -81,12 +81,12 @@ class InventoryService
         /** @var Inventory|null $inv */
         $inv = $this->repository->getByLocation($productoId, $bodegaId, $perchaId);
 
-        if (! $inv) {
+        if (!$inv) {
             $inv = $this->repository->create([
-                'producto_id'     => $productoId,
-                'bodega_id'       => $bodegaId,
-                'percha_id'       => $perchaId,
-                'stock_actual'    => 0,
+                'producto_id' => $productoId,
+                'bodega_id' => $bodegaId,
+                'percha_id' => $perchaId,
+                'stock_actual' => 0,
                 'stock_reservado' => 0,
             ]);
         }
@@ -129,23 +129,23 @@ class InventoryService
 
         // Registrar el movimiento en ajustes_inventario (kardex simple)
         $ajuste = $this->adjustmentRepository->create([
-            'usuario_id'    => Auth::id(),
-            'bodega_id'     => $inv->bodega_id,
-            'percha_id'     => $inv->percha_id,
-            'producto_id'   => $inv->producto_id,
+            'usuario_id' => Auth::id(),
+            'bodega_id' => $inv->bodega_id,
+            'percha_id' => $inv->percha_id,
+            'producto_id' => $inv->producto_id,
             'stock_inicial' => $stockInicial,
-            'stock_final'   => $inv->stock_actual,
-            'diferencia'    => $cantidad,
-            'tipo'          => 'positivo',
-            'motivo'        => $motivo ?: 'Aumento de stock',
+            'stock_final' => $inv->stock_actual,
+            'diferencia' => $cantidad,
+            'tipo' => 'positivo',
+            'motivo' => $motivo ?: 'Aumento de stock',
         ]);
 
         return [
-            'message'    => "Se aumentó el stock en {$cantidad} unidades.",
-            'inventory'  => $inv,
+            'message' => "Se aumentó el stock en {$cantidad} unidades.",
+            'inventory' => $inv,
             'diferencia' => $cantidad,
-            'tipo'       => 'positivo',
-            'ajuste'     => $ajuste,
+            'tipo' => 'positivo',
+            'ajuste' => $ajuste,
         ];
     }
 
@@ -171,23 +171,23 @@ class InventoryService
         $diferencia = -$cantidad;
 
         $ajuste = $this->adjustmentRepository->create([
-            'usuario_id'    => Auth::id(),
-            'bodega_id'     => $inv->bodega_id,
-            'percha_id'     => $inv->percha_id,
-            'producto_id'   => $inv->producto_id,
+            'usuario_id' => Auth::id(),
+            'bodega_id' => $inv->bodega_id,
+            'percha_id' => $inv->percha_id,
+            'producto_id' => $inv->producto_id,
             'stock_inicial' => $stockInicial,
-            'stock_final'   => $inv->stock_actual,
-            'diferencia'    => $diferencia,
-            'tipo'          => 'negativo',
-            'motivo'        => 'Disminución manual de stock',
+            'stock_final' => $inv->stock_actual,
+            'diferencia' => $diferencia,
+            'tipo' => 'negativo',
+            'motivo' => 'Disminución manual de stock',
         ]);
 
         return [
-            'message'    => "Se disminuyó el stock en {$cantidad} unidades.",
-            'inventory'  => $inv,
+            'message' => "Se disminuyó el stock en {$cantidad} unidades.",
+            'inventory' => $inv,
             'diferencia' => $diferencia,
-            'tipo'       => 'negativo',
-            'ajuste'     => $ajuste,
+            'tipo' => 'negativo',
+            'ajuste' => $ajuste,
         ];
     }
 
@@ -212,10 +212,10 @@ class InventoryService
 
         if ($nuevoStock === $stockInicial) {
             return [
-                'message'    => 'El stock ya tiene ese valor. No se realizaron cambios.',
-                'inventory'  => $inv,
+                'message' => 'El stock ya tiene ese valor. No se realizaron cambios.',
+                'inventory' => $inv,
                 'diferencia' => 0,
-                'tipo'       => 'sin_cambios',
+                'tipo' => 'sin_cambios',
             ];
         }
 
@@ -225,29 +225,29 @@ class InventoryService
         $inv = $this->repository->adjustStock($inv, $nuevoStock);
 
         $ajuste = $this->adjustmentRepository->create([
-            'usuario_id'    => Auth::id(),
-            'bodega_id'     => $inv->bodega_id,
-            'percha_id'     => $inv->percha_id,
-            'producto_id'   => $inv->producto_id,
+            'usuario_id' => Auth::id(),
+            'bodega_id' => $inv->bodega_id,
+            'percha_id' => $inv->percha_id,
+            'producto_id' => $inv->producto_id,
             'stock_inicial' => $stockInicial,
-            'stock_final'   => $nuevoStock,
-            'diferencia'    => $diferencia,
-            'tipo'          => $tipo,
-            'motivo'        => $motivo,
+            'stock_final' => $nuevoStock,
+            'diferencia' => $diferencia,
+            'tipo' => $tipo,
+            'motivo' => $motivo,
         ]);
 
         return [
-            'message'    => $tipo === 'positivo'
+            'message' => $tipo === 'positivo'
                 ? "Se aumentó el stock en {$diferencia} unidades."
                 : "Se disminuyó el stock en " . abs($diferencia) . " unidades.",
-            'inventory'  => $inv,
+            'inventory' => $inv,
             'diferencia' => $diferencia,
-            'tipo'       => $tipo,
-            'ajuste'     => $ajuste,
+            'tipo' => $tipo,
+            'ajuste' => $ajuste,
         ];
     }
 
-        /**
+    /**
      * Disminuye stock para una VENTA.
      *
      * - Si $perchaId es null, busca cualquier inventario de ese producto en esa bodega
@@ -266,52 +266,128 @@ class InventoryService
         ?int $usuarioId = null,
         ?int $saleId = null,
         ?string $numFactura = null
-    ): bool
-    {
+    ): bool {
         $cantidad = (int) $cantidad;
         if ($cantidad <= 0) {
             throw new InvalidArgumentException("La cantidad a disminuir debe ser mayor a 0");
         }
 
-        // 1) Buscar inventario
-        if (!is_null($perchaId)) {
-            $inv = $this->repository->getByLocation($productoId, $bodegaId, $perchaId);
-        } else {
-            $inv = Inventory::where('producto_id', $productoId)
-                ->where('bodega_id', $bodegaId)
-                ->orderBy('percha_id')
-                ->first();
-        }
-
-        if (! $inv) {
-            $inv = $this->getOrCreateLocation($productoId, $bodegaId, $perchaId);
-        }
-
-        $stockInicial = (int) $inv->stock_actual;
-        $teniaStock   = $stockInicial >= $cantidad;
-
-        $inv = $this->repository->decreaseStock($inv, $cantidad);
-
         $usuarioFinal = $usuarioId ?? Auth::id();
-
         $motivo = 'Disminución por venta';
         if ($saleId) {
             $motivo = "Venta #{$saleId}" . ($numFactura ? " ({$numFactura})" : "");
         }
 
-        $this->adjustmentRepository->create([
-            'usuario_id'    => $usuarioFinal,
-            'bodega_id'     => $inv->bodega_id,
-            'percha_id'     => $inv->percha_id,      
-            'producto_id'   => $inv->producto_id,
-            'stock_inicial' => $stockInicial,
-            'stock_final'   => $inv->stock_actual,
-            'diferencia'    => -$cantidad,
-            'tipo'          => 'negativo',
-            'motivo'        => $motivo,
-        ]);
+        // CASO 1: Percha específica
+        if (!is_null($perchaId)) {
+            $inv = $this->repository->getByLocation($productoId, $bodegaId, $perchaId);
 
-        return $teniaStock;
+            if (!$inv) {
+                // Si no existe, se crea para que quede en negativo
+                $inv = $this->getOrCreateLocation($productoId, $bodegaId, $perchaId);
+            }
+
+            $stockInicial = (int) $inv->stock_actual;
+            $teniaStock = $stockInicial >= $cantidad;
+
+            $inv = $this->repository->decreaseStock($inv, $cantidad);
+
+            $this->adjustmentRepository->create([
+                'usuario_id' => $usuarioFinal,
+                'bodega_id' => $inv->bodega_id,
+                'percha_id' => $inv->percha_id,
+                'producto_id' => $inv->producto_id,
+                'stock_inicial' => $stockInicial,
+                'stock_final' => $inv->stock_actual,
+                'diferencia' => -$cantidad,
+                'tipo' => 'negativo',
+                'motivo' => $motivo,
+            ]);
+
+            return $teniaStock;
+        }
+
+        // CASO 2: Percha automática (null) -> Barrido inteligente
+        // Buscamos todos los registros con stock > 0, ordenados (puedes ajustar el orden)
+        $inventarios = Inventory::where('producto_id', $productoId)
+            ->where('bodega_id', $bodegaId)
+            ->where('stock_actual', '>', 0)
+            ->orderBy('id') // FIFO por ID, o podrías usar 'created_at', o prioridad de percha
+            ->get();
+
+        $faltante = $cantidad;
+        $algunoSinStock = false;
+
+        // 1) Consumir de donde HAYA stock positivo
+        foreach ($inventarios as $inv) {
+            if ($faltante <= 0)
+                break;
+
+            $disponible = (int) $inv->stock_actual;
+            $aDescontar = min($disponible, $faltante);
+
+            $stockInicial = $disponible;
+
+            // Bajamos stock
+            $inv = $this->repository->decreaseStock($inv, $aDescontar);
+
+            // Registramos ajuste parcial
+            $this->adjustmentRepository->create([
+                'usuario_id' => $usuarioFinal,
+                'bodega_id' => $inv->bodega_id,
+                'percha_id' => $inv->percha_id,
+                'producto_id' => $inv->producto_id,
+                'stock_inicial' => $stockInicial,
+                'stock_final' => $inv->stock_actual,
+                'diferencia' => -$aDescontar,
+                'tipo' => 'negativo',
+                'motivo' => $motivo . " (Auto)",
+            ]);
+
+            $faltante -= $aDescontar;
+        }
+
+        // 2) Si todavía falta (stock total era insuficiente),
+        //    tenemos que descontar el remanente de ALGÚN lado para que quede negativo.
+        //    Usaremos el último inventario tocado o buscaremos uno por defecto (sin percha o primera percha).
+        if ($faltante > 0) {
+            $algunoSinStock = true;
+
+            // Intentamos buscar uno por defecto (ej: percha_id = null o el primero que exista)
+            // Si $inventarios tenía elementos, usamos el último; si no, buscamos cualquiera o creamos.
+            $targetInv = $inventarios->last();
+
+            if (!$targetInv) {
+                // No había ninguno con stock > 0. Buscamos CUALQUIERA (incluso con 0 o negativo)
+                $targetInv = Inventory::where('producto_id', $productoId)
+                    ->where('bodega_id', $bodegaId)
+                    ->first();
+            }
+
+            if (!$targetInv) {
+                // Si de plano no existe NADA en esa bodega, creamos uno (percha null por defecto o lo que definas)
+                $targetInv = $this->getOrCreateLocation($productoId, $bodegaId, null);
+            }
+
+            // Descontamos lo que falta (llevándolo a negativo)
+            $stockInicial = (int) $targetInv->stock_actual;
+
+            $targetInv = $this->repository->decreaseStock($targetInv, $faltante);
+
+            $this->adjustmentRepository->create([
+                'usuario_id' => $usuarioFinal,
+                'bodega_id' => $targetInv->bodega_id,
+                'percha_id' => $targetInv->percha_id,
+                'producto_id' => $targetInv->producto_id,
+                'stock_inicial' => $stockInicial,
+                'stock_final' => $targetInv->stock_actual,
+                'diferencia' => -$faltante,
+                'tipo' => 'negativo',
+                'motivo' => $motivo . " (Saldo negativo)",
+            ]);
+        }
+
+        return !$algunoSinStock;
     }
 
 

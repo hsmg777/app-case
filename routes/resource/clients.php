@@ -9,7 +9,7 @@ use App\Http\Controllers\Clients\ClientController;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'verified', 'role:cashier|admin'])
+Route::middleware(['auth', 'verified', 'role:cashier|admin|supervisor'])
     ->prefix('clients')
     ->name('clients.')
     ->group(function () {

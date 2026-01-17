@@ -36,6 +36,14 @@ class SaleController extends Controller
 
     public function viewSelectBodega()
     {
+        $user = auth()->user();
+        if ($user->bodega_id) {
+            return redirect()->route('cashier.open.view', [
+                'return_to' => route('ventas.index', ['bodega' => $user->bodega_id]),
+                'bodega_id' => $user->bodega_id
+            ]);
+        }
+
         $bodegas = Bodega::all();
         return view('sales.select-bodega', compact('bodegas'));
     }
@@ -49,41 +57,46 @@ class SaleController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'client_id'      => 'nullable|exists:clients,id',
-            'user_id'        => 'required|exists:users,id',
-            'bodega_id'      => 'required|exists:bodegas,id',
-            'caja_id'        => 'required|integer|min:1',
+            'client_id' => 'nullable|exists:clients,id',
+            'user_id' => 'required|exists:users,id',
+            'bodega_id' => 'required|exists:bodegas,id',
+            'caja_id' => 'required|integer|min:1',
             'client_email_id' => 'nullable|exists:client_emails,id',
-            'email_destino'   => 'nullable|string|max:255',
-            'fecha_venta'    => 'required|date',
+            'email_destino' => 'nullable|string|max:255',
+            'fecha_venta' => 'required|date',
             'tipo_documento' => 'nullable|string|max:20',
-            'num_factura'    => 'nullable|string|max:50',
-            'observaciones'  => 'nullable|string|max:500',
+            'num_factura' => 'nullable|string|max:50',
+            'observaciones' => 'nullable|string|max:500',
 
-            'iva_enabled'    => 'nullable|boolean',
+            'iva_enabled' => 'nullable|boolean',
 
-            'items'                   => 'required|array|min:1',
-            'items.*.producto_id'     => 'required|exists:products,id',
-            'items.*.descripcion'     => 'required|string|max:255',
-            'items.*.cantidad'        => 'required|integer|min:1',
+            'items' => 'required|array|min:1',
+            'items.*.producto_id' => 'required|exists:products,id',
+            'items.*.descripcion' => 'required|string|max:255',
+            'items.*.cantidad' => 'required|integer|min:1',
 
             // backend recalcula por product_prices
             'items.*.precio_unitario' => 'nullable|numeric|min:0',
 
             // descuento es MONTO ($)
-            'items.*.descuento'       => 'nullable|numeric|min:0',
+            'items.*.descuento' => 'nullable|numeric|min:0',
 
-            'items.*.iva_porcentaje'  => 'nullable|numeric|min:0|max:100',
-            'items.*.percha_id'       => 'nullable|exists:perchas,id',
+            'items.*.iva_porcentaje' => 'nullable|numeric|min:0|max:100',
+            'items.*.percha_id' => 'nullable|exists:perchas,id',
 
-            'payment'                   => 'required|array',
-            'payment.metodo'            => 'required|string|max:20',
+            'payment' => 'required|array',
+            'payment.metodo' => 'required|string|max:20',
             'payment.payment_method_id' => 'nullable|exists:payment_methods,id',
-            'payment.monto_recibido'    => 'required|numeric|min:0',
-            'payment.referencia'        => 'nullable|string|max:100',
-            'payment.observaciones'     => 'nullable|string|max:500',
-            'payment.fecha_pago'        => 'nullable|date',
+            'payment.monto_recibido' => 'required|numeric|min:0',
+            'payment.referencia' => 'nullable|string|max:100',
+            'payment.observaciones' => 'nullable|string|max:500',
+            'payment.fecha_pago' => 'nullable|date',
         ]);
+
+        // Si el usuario tiene bodega asignada, forzarla
+        if (auth()->user()->bodega_id) {
+            $data['bodega_id'] = auth()->user()->bodega_id;
+        }
 
         $sale = $this->service->crearVenta($data);
 
@@ -94,7 +107,7 @@ class SaleController extends Controller
 
         return response()->json([
             'message' => $message,
-            'data'    => $sale,
+            'data' => $sale,
         ], 201);
     }
 

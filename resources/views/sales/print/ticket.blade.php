@@ -37,7 +37,8 @@
       ?? ($sale->cliente_email ?? null);
 
   $atendidoPor  = $sale->user->name ?? $sale->user->nombre ?? '-';
-  $claveAcceso  = $sale->clave_acceso ?? $sale->access_key ?? null;
+  $invoice = \App\Models\Sri\ElectronicInvoice::where('sale_id', $sale->id)->first();
+  $claveAcceso = $invoice?->clave_acceso;
 @endphp
 
 

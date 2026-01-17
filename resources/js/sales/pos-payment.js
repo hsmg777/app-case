@@ -35,57 +35,10 @@ function ensureCajaOrRedirect() {
 }
 
 
-function openPaymentModal() {
-  if (!ensureCajaOrRedirect()) return;
-  const cart = getCart();
-  if (!cart || cart.length === 0) {
-    showSaleAlert("Debes agregar al menos un producto al carrito.", true);
-    return;
-  }
+// function openPaymentModal removed
+// function buildCashierOpenUrl kept helper
 
-  const bodegaId = document.getElementById("bodega_id")?.value;
-  if (!bodegaId) {
-    showSaleAlert("Selecciona una bodega.", true);
-    return;
-  }
-
-  const fechaVenta = document.getElementById("fecha_venta")?.value;
-  if (!fechaVenta) {
-    showSaleAlert("La fecha de venta es obligatoria.", true);
-    return;
-  }
-
-  hideSaleAlert();
-
-  const totals = getTotals();
-
-  const totalEl = document.getElementById("payment_modal_total");
-  if (totalEl) totalEl.textContent = formatMoney(totals.total);
-
-  const inputRecibido = document.getElementById("payment_modal_monto_recibido");
-  if (inputRecibido) {
-    inputRecibido.value = Number(totals.total || 0).toFixed(2);
-  }
-
-  const emailSelect = document.getElementById("cliente_email");
-  const emailPreview = document.getElementById("payment_modal_email_preview");
-  if (emailSelect && emailPreview) {
-    const opt = emailSelect.selectedOptions?.[0];
-    emailPreview.textContent =
-      opt && opt.value ? opt.text : "(sin correo seleccionado)";
-
-  }
-
-  recalcCambio();
-
-  const modal = document.getElementById("payment-modal");
-  if (modal) modal.classList.remove("hidden");
-}
-
-function closePaymentModal() {
-  const modal = document.getElementById("payment-modal");
-  if (modal) modal.classList.add("hidden");
-}
+// function closePaymentModal removed
 
 function recalcCambio() {
   const totals = getTotals();
@@ -147,8 +100,9 @@ async function submitSaleFromModal() {
       document.getElementById("tipo_documento")?.value || "FACTURA";
     const numFactura = document.getElementById("num_factura")?.value || null;
 
+    // Nota: sale_observaciones fue removido, usamos payment.observaciones como general
     const observacionesVenta =
-      document.getElementById("sale_observaciones")?.value || null;
+      document.getElementById("payment_modal_observaciones")?.value || null;
 
     if (!bodegaId || !fechaVenta) {
       showSaleAlert("Completa los datos de la venta.", true);
@@ -161,7 +115,9 @@ async function submitSaleFromModal() {
 
     // Validación: recibido vs total UI
     if (recibido < totalUi) {
-      showSaleAlert("El monto recibido no puede ser menor al total.", true);
+      showSaleAlert("El monto recibido no puede ser menor al total. Total: " + totalUi, true);
+      submitting = false; // Reset submitting
+      if (btnConfirm) btnConfirm.disabled = false;
       return;
     }
 
@@ -201,26 +157,26 @@ async function submitSaleFromModal() {
       iva_enabled: ivaEnabled,
 
       items: cart.map((item) => {
-      const qty = Number(item.cantidad) || 1;
+        const qty = Number(item.cantidad) || 1;
 
-      const lineSubtotal =
-        Number(item.lineSubtotal ?? 0) ||
-        (Number(item.total ?? 0) + Number(item.descuento ?? 0));
+        const lineSubtotal =
+          Number(item.lineSubtotal ?? 0) ||
+          (Number(item.total ?? 0) + Number(item.descuento ?? 0));
 
-      const precioEfectivo = qty > 0
-        ? (lineSubtotal / qty)
-        : Number(item.precio_unitario ?? 0);
+        const precioEfectivo = qty > 0
+          ? (lineSubtotal / qty)
+          : Number(item.precio_unitario ?? 0);
 
-      return {
-        producto_id: item.producto_id,
-        descripcion: item.descripcion,
-        cantidad: qty,
-        precio_unitario: Number(precioEfectivo || 0).toFixed(2),
-        descuento: Number(item.descuento || 0),
-        iva_porcentaje: item.iva_porcentaje ?? 15,
-        percha_id: item.percha_id ?? null,
-      };
-    }),
+        return {
+          producto_id: item.producto_id,
+          descripcion: item.descripcion,
+          cantidad: qty,
+          precio_unitario: Number(precioEfectivo || 0).toFixed(2),
+          descuento: Number(item.descuento || 0),
+          iva_porcentaje: item.iva_porcentaje ?? 15,
+          percha_id: item.percha_id ?? null,
+        };
+      }),
 
 
       payment: {
@@ -306,15 +262,13 @@ async function submitSaleFromModal() {
       }
     }
 
-    closePaymentModal();
+    // closePaymentModal() removed
     showChangeModal(totalReal, recibido, cambioReal);
 
     // Limpiar carrito y formularios
     clearCart();
 
-    const obsVenta = document.getElementById("sale_observaciones");
-    if (obsVenta) obsVenta.value = "";
-
+    // sale_observaciones removed
     const refPago = document.getElementById("payment_modal_referencia");
     if (refPago) refPago.value = "";
 
@@ -330,15 +284,9 @@ async function submitSaleFromModal() {
 }
 
 export function initPayment() {
-  const btnOpen = document.getElementById("btn-open-payment-modal");
-  if (btnOpen) btnOpen.addEventListener("click", openPaymentModal);
+  // btn-open-payment-modal listener removed, btn-confirm-payment is now the trigger
 
-  const modal = document.getElementById("payment-modal");
-  if (modal) {
-    modal.querySelectorAll("[data-payment-close]").forEach((btn) => {
-      btn.addEventListener("click", closePaymentModal);
-    });
-  }
+  // payment-modal close listeners removed
 
   const changeModal = document.getElementById("change-modal");
   if (changeModal) {

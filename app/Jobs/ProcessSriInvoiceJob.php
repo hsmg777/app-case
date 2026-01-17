@@ -12,21 +12,31 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Str;
 use App\Jobs\SendSriInvoiceMailJob;
 
-class ProcessSriInvoiceJob implements ShouldQueue
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+
+class ProcessSriInvoiceJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 5;
+    public int $tries = 15;
+    public int $uniqueFor = 900; // Unicidad por 15 min
+
+    public function uniqueId(): string
+    {
+        return 'sale:' . $this->saleId;
+    }
 
     // Reintentos con backoff (segundos)
     public function backoff(): array
     {
-        return [60, 180, 600, 1200, 1800];
+        return [30, 60, 120, 300, 600];
     }
 
     public int $timeout = 120;
 
-    public function __construct(public int $saleId) {}
+    public function __construct(public int $saleId)
+    {
+    }
 
     public function handle(SriInvoiceService $sri): void
     {
@@ -43,23 +53,46 @@ class ProcessSriInvoiceJob implements ShouldQueue
             $sri->generateXmlForSale($sale->id);
             $sri->signXmlForSale($sale->id);
 
-            $inv = $sri->sendAndAuthorizeForSale($sale->id);
+            // Retorna array ['status' => ..., 'invoice' => ...]
+            $result = $sri->sendAndAuthorizeForSale($sale->id);
 
-            // Si autorizado, recién envías correo
-            if (Str::upper((string)($inv->estado_sri ?? '')) === 'AUTORIZADO') {
-                SendSriInvoiceMailJob::dispatch($sale->id);
+            $status = $result['status'] ?? '';
+            $inv = $result['invoice'] ?? null; // Puede ser null si rejected en recepcion
+
+            // 1. Si está en procesamiento (70 o timeout), soltamos el job
+            if ($status === 'PROCESSING') {
+                $this->release(30);
+                return;
             }
 
-            // Si queda ENVIADO / SIN_RESPUESTA, lanzamos excepción para reintento
-            // (opcional, pero recomendado para que vuelva a consultar autorización)
-            if (in_array(Str::upper((string)($inv->estado_sri ?? '')), ['ENVIADO'], true)) {
-                throw new \RuntimeException('SRI aún no responde autorización (ENVIADO). Reintentando...');
+            // 2. Si autorizado, guardamos y fin
+            if ($status === 'AUTHORIZED') {
+                SendSriInvoiceMailJob::dispatch($sale->id);
+                return;
+            }
+
+            // 3. Si sigue enviado sin respuesta, reintentamos
+            if ($status === 'ENVIADO') {
+                // Aun no autorizado? Release
+                $this->release(30);
+                return;
+            }
+
+            // 4. Si rechazado, lanzamos excepcion para loguear o dejar failed si se acaban intentos?
+            // User dijo: "pase a RECHAZADO real por validación".
+            // Si es rechazado real, NO deberíamos reintentar infinitamente.
+            if ($status === 'REJECTED') {
+                // Logueamos y terminamos el job (no tiramos excepcion para no reintentar)
+                // Ojo: si hay un error transitorio que lo marcó rejected (raro), se pierde.
+                // Pero SRI rejected suele ser definitivo (XML mal formados, datos invalidos).
+                \Log::warning("SRI Rechazado Final Sale #{$sale->id}", ['result' => $result]);
+                return;
             }
 
         } catch (\Throwable $e) {
             \Log::error('SRI flow failed (job)', [
                 'sale_id' => $sale->id,
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             // Marca error SOLO en electronic_invoices (no en sales)

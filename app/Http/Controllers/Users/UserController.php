@@ -12,26 +12,29 @@ class UserController extends Controller
     // Listado de usuarios (roles incluidos)
     public function index()
     {
-        $usuarios = User::with('roles')->get();
-        $roles = Role::pluck('name', 'id'); // Necesario para modales también
+        $usuarios = User::with('roles', 'bodega')->get();
+        $roles = Role::pluck('name', 'id');
+        $bodegas = \App\Models\Store\Bodega::orderBy('nombre')->pluck('nombre', 'id');
 
-        return view('users.index', compact('usuarios', 'roles'));
+        return view('users.index', compact('usuarios', 'roles', 'bodegas'));
     }
 
     // Guardar usuario (modal crear)
     public function store(Request $request)
     {
         $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
             'password' => 'required|min:6',
-            'role_id'  => 'required|exists:roles,id',
+            'role_id' => 'required|exists:roles,id',
+            'bodega_id' => 'nullable|exists:bodegas,id',
         ]);
 
         $user = User::create([
-            'name'     => $request->name,
-            'email'    => $request->email,
+            'name' => $request->name,
+            'email' => $request->email,
             'password' => bcrypt($request->password),
+            'bodega_id' => $request->bodega_id,
         ]);
 
         $user->assignRole(Role::find($request->role_id)->name);
@@ -45,14 +48,16 @@ class UserController extends Controller
         $user = User::findOrFail($id);
 
         $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email,' . $id,
-            'role_id'  => 'required|exists:roles,id',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $id,
+            'role_id' => 'required|exists:roles,id',
+            'bodega_id' => 'nullable|exists:bodegas,id',
         ]);
 
         $user->update([
-            'name'  => $request->name,
+            'name' => $request->name,
             'email' => $request->email,
+            'bodega_id' => $request->bodega_id,
         ]);
 
         // Actualizar rol

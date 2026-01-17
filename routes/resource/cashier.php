@@ -9,7 +9,7 @@ use App\Http\Controllers\Cashier\CashierController;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'role:cashier|admin'])
+Route::middleware(['auth', 'role:cashier|admin|supervisor'])
     ->prefix('cashier')
     ->name('cashier.')
     ->group(function () {

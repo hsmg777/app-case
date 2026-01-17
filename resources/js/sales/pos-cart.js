@@ -432,6 +432,16 @@ function recalcSummary() {
   if (impEl) impEl.textContent = formatMoney(impuesto);
   if (ivaEl) ivaEl.textContent = formatMoney(iva);
   if (totEl) totEl.textContent = formatMoney(total);
+
+  // ✅ Auto-update monto recibido inline
+  const inputRecibido = document.getElementById('payment_modal_monto_recibido');
+  if (inputRecibido) {
+    // Solo actualizar si no tiene foco (para no interrumpir escritura si justo cambia algo por background, aunque raro)
+    // O mejor: siempre actualizar para que coincida con el total, ya que si cambia el total, el monto previo ya no es "exacto".
+    if (document.activeElement !== inputRecibido) {
+      inputRecibido.value = total.toFixed(2);
+    }
+  }
 }
 
 function renderCart() {
@@ -456,7 +466,7 @@ function renderCart() {
     const pricingLabel = item.pricing_label ? String(item.pricing_label) : '';
     const puAplicado =
       Number.isFinite(Number(item.precio_unitario_aplicado)) &&
-      Number(item.precio_unitario_aplicado) > 0
+        Number(item.precio_unitario_aplicado) > 0
         ? formatMoney(item.precio_unitario_aplicado)
         : '';
 
