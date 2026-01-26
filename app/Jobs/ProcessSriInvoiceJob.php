@@ -66,7 +66,7 @@ class ProcessSriInvoiceJob implements ShouldQueue, ShouldBeUnique
             }
 
             // 2. Si autorizado, guardamos y fin
-            if ($status === 'AUTHORIZED') {
+            if ($status === 'AUTORIZADO') {
                 SendSriInvoiceMailJob::dispatch($sale->id);
                 return;
             }

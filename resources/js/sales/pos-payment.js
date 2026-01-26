@@ -139,6 +139,30 @@ async function submitSaleFromModal() {
     const clientEmailId = emailSelect && emailSelect.value ? emailSelect.value : null;
     const emailDestino = selectedOpt && selectedOpt.value ? selectedOpt.text : null;
 
+    // VALIDACIÓN CLIENTE: Si es >= 50, no puede ser consumidor final
+    // Buscamos info del cliente en el DOM (seteada por pos-client.js)
+    const clientInputEl = document.getElementById("client_id");
+
+    // Obtenemos los data-atributes para saber "quién" es el cliente actual segun el UI
+    // Si no hay client_id, el script pos-client asume CF, pero acá validamos explícitamente.
+    // Ojo: cuando seleccionas un cliente real, el value se llena. Si es CF el value podría estar vacío o ser el ID del CF.
+    // Usaremos la referencia del nombre/ident en el UI para estar seguros.
+    const clientNameUI = document.getElementById("cliente_nombre")?.textContent?.trim()?.toUpperCase() || "";
+    const clientIdentUI = document.getElementById("cliente_identificacion")?.textContent?.trim() || "";
+
+    // Lógica para detectar CF en frontend
+    const isCF =
+      !clientId || // Si no tiene ID seleccionado es el default
+      clientIdentUI === '9999999999999' ||
+      clientNameUI === 'CONSUMIDOR FINAL';
+
+    if (totalUi >= 50 && isCF) {
+      showSaleAlert("Para ventas de $50 o más, es OBLIGATORIO ingresar un cliente con datos (no Consumidor Final).", true);
+      submitting = false;
+      if (btnConfirm) btnConfirm.disabled = false;
+      return;
+    }
+
 
     const cajaId = getCajaId();
 
