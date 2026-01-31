@@ -64,6 +64,14 @@ class SriInvoiceService
 
             $existing = $this->repo->findBySaleId($sale->id);
             if ($existing) {
+                if (!$sale->num_factura && !empty($existing->clave_acceso) && strlen($existing->clave_acceso) >= 39) {
+                    $serie = substr($existing->clave_acceso, 24, 6);
+                    $estab = substr($serie, 0, 3);
+                    $pto = substr($serie, 3, 3);
+                    $secu = substr($existing->clave_acceso, 30, 9);
+                    $sale->num_factura = "{$estab}-{$pto}-{$secu}";
+                    $sale->save();
+                }
                 return $existing;
             }
 
@@ -98,6 +106,13 @@ class SriInvoiceService
 
             $xmlString = $this->buildFacturaXml($sale, $cfg, $claveAcceso, $estab, $pto, $secuencial);
 
+            // ✅ Validación local (para matar el error 35 antes de enviarlo)
+            $this->assertWellFormedXml($xmlString, 'generated');
+
+            // Si tienes el XSD guardado, valida aquí (antes de firmar)
+            $this->maybeValidateFacturaXsd($xmlString, 'generated');
+
+
             $dir = "sri/xml/generados";
             Storage::disk('local')->makeDirectory($dir);
 
@@ -120,8 +135,8 @@ class SriInvoiceService
 
     public function sendAndAuthorizeForSale(int $saleId)
     {
-        return DB::transaction(function () use ($saleId) {
-
+        // 1. Transaction #1: Solo DB para preparación y lock
+        $prep = DB::transaction(function () use ($saleId) {
             $sale = Sale::lockForUpdate()->findOrFail($saleId);
 
             if ($sale->estado !== 'pagada') {
@@ -136,14 +151,11 @@ class SriInvoiceService
             }
 
             if (strtoupper((string) ($invoice->estado_sri ?? '')) === 'AUTORIZADO') {
-                return $invoice;
+                return ['status' => 'AUTORIZADO', 'invoice' => $invoice, 'already_authorized' => true];
             }
 
-            // --- LOGICA DE ENVIO Y AUTORIZACION (HOTFIX ERROR 70) ---
-
-            // Si ya está ENVIADO o EN_PROCESO, saltamos la recepción para sólo consultar autorización
             $currentState = strtoupper((string) ($invoice->estado_sri ?? ''));
-            $skipReception = in_array($currentState, ['ENVIADO', 'EN_PROCESO'], true);
+            $skipReception = $this->shouldSkipReception($invoice);
 
             if (!$skipReception) {
                 $signedPath = $invoice->xml_firmado_path ?? null;
@@ -153,104 +165,188 @@ class SriInvoiceService
                     ]);
                 }
 
-                $cfg = $this->getCfgOrFail();
-                $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
-                $signedXml = Storage::disk('local')->get($signedPath);
-
-                $recep = $this->callRecepcion($urls['reception_wsdl'], $signedXml);
-
-                \Illuminate\Support\Facades\Log::info('SRI: Recep Raw Response', ['recep' => $recep]);
-
-                $is70 = $this->hasProcessing70($recep);
-                $isDup = $this->isDuplicateAlreadyExists($recep);
-                $recibida = $this->isRecibida($recep);
-
-                if ($isDup) {
-                    \Illuminate\Support\Facades\Log::info('SRI: DUPLICATE_ALREADY_EXISTS detectado. Saltando recepción y consultando autorización.', [
-                        'clave' => $invoice->clave_acceso
-                    ]);
-
-                    $invoice->estado_sri = 'ENVIADO';
-                    $invoice->mensajes_sri_json = $this->extractAllMessages($recep);
+                // Opcional: setear a ENVIANDO para UI
+                if ($currentState === 'PENDIENTE_ENVIO') {
+                    $invoice->estado_sri = 'EN_PROCESO';
                     $invoice->save();
-
-                    // IMPORTANTE: no retornar; seguimos al bloque de autorización
-                    $skipReception = true;
                 }
+            }
 
-                if ($is70) {
-                    \Illuminate\Support\Facades\Log::info('SRI: PROCESSING_RECEPTION_70 detectado. Retorno temprano.', ['clave' => $invoice->clave_acceso]);
+            $cfg = $this->getCfgOrFail();
+            $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
+
+            return [
+                'invoice' => $invoice,
+                'skipReception' => $skipReception,
+                'urls' => $urls,
+                'claveAcceso' => $invoice->clave_acceso,
+            ];
+        });
+
+        if (isset($prep['already_authorized'])) {
+            return $prep;
+        }
+
+        /** @var ElectronicInvoice $invoice */
+        $invoice = $prep['invoice'];
+        $skipReception = $prep['skipReception'];
+        $urls = $prep['urls'];
+        $claveAcceso = $prep['claveAcceso'];
+
+        // 2. Fuera de transacción: Recepción
+        if (!$skipReception) {
+            $signedXml = Storage::disk('local')->get($invoice->xml_firmado_path);
+            $this->assertWellFormedXml($signedXml, 'signed-before-send');
+            $this->maybeValidateFacturaXsd($signedXml, 'signed-before-send');
+            $recep = $this->callRecepcion($urls['reception_wsdl'], $signedXml);
+
+            $is70 = $this->hasProcessing70($recep);
+            $isDup = $this->isDuplicateAlreadyExists($recep);
+            $recibida = $this->isRecibida($recep);
+
+            // Actualizar estado según recepción
+            if (strtoupper((string) ($recep['estado'] ?? '')) === 'ERROR_RECEPCION' || $is70) {
+                DB::transaction(function () use ($invoice, $recep) {
+                    $invoice->refresh();
                     $invoice->estado_sri = 'EN_PROCESO';
                     $invoice->mensajes_sri_json = $this->extractAllMessages($recep);
                     $invoice->save();
-                    return [
-                        'status' => 'PROCESSING',
-                        'message' => 'SRI está procesando el comprobante. Reintenta en unos segundos.',
-                        'invoice' => $invoice
-                    ];
-                }
+                });
+                return [
+                    'status' => 'PROCESSING',
+                    'message' => $is70 ? 'SRI procesando (70).' : 'Fallo temporal en recepción.',
+                    'invoice' => $invoice->fresh()
+                ];
+            }
 
-                if ($recibida) {
+            if ($isDup || $recibida) {
+                DB::transaction(function () use ($invoice, $recep) {
+                    $invoice->refresh();
                     $invoice->estado_sri = 'ENVIADO';
                     $invoice->mensajes_sri_json = $this->extractAllMessages($recep);
                     $invoice->save();
-
-                    \Illuminate\Support\Facades\Log::info('SRI: Comprobante Recibido. Continuando a Autorizacion.', [
-                        'clave' => $invoice->clave_acceso
-                    ]);
-                } else {
-                    // Rechazo real (no es recibida, ni 70, ni duplicado)
+                });
+                // Continuamos a autorización
+            } else {
+                // Rechazo real
+                DB::transaction(function () use ($invoice, $recep) {
+                    $invoice->refresh();
                     $invoice->estado_sri = 'RECHAZADO';
                     $invoice->mensajes_sri_json = $this->extractAllMessages($recep);
                     $invoice->save();
-                    return ['status' => 'REJECTED', 'recep' => $recep, 'invoice' => $invoice];
-                }
+                });
+                return ['status' => 'REJECTED', 'recep' => $recep, 'invoice' => $invoice->fresh()];
+            }
+        }
+
+        // 3. Fuera de transacción: Polling Autorización
+        $backoffs = [2, 4, 8, 15, 30, 30, 30, 30, 30, 30, 30, 30]; // 12 intentos
+        $auth = [];
+
+        foreach ($backoffs as $index => $waitSeconds) {
+            $auth = $this->callAutorizacion($urls['authorization_wsdl'], $claveAcceso);
+            $estadoAuth = strtoupper((string) ($auth['estado'] ?? ''));
+
+            Log::info("SRI: Polling autorización #" . ($index + 1) . " para $claveAcceso. Estado: $estadoAuth");
+
+            if ($estadoAuth === 'AUTORIZADO' || $estadoAuth === 'NO AUTORIZADO') {
+                break;
             }
 
-            // --- ETAPA AUTORIZACION (CON POLLING) ---
-            $cfg = $this->getCfgOrFail();
-            $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
-            $claveAcceso = (string) ($invoice->clave_acceso ?? '');
-
-            if ($claveAcceso === '') {
-                return ['status' => 'ERROR', 'message' => 'Sin clave de acceso'];
+            if ($index < count($backoffs) - 1) {
+                sleep($waitSeconds);
             }
+        }
 
-            // Polling de autorización
-            $maxRetries = $skipReception ? 3 : 10;
-            $auth = [];
-            for ($i = 1; $i <= $maxRetries; $i++) {
-                $auth = $this->callAutorizacion($urls['authorization_wsdl'], $claveAcceso);
-                $estadoAuth = strtoupper((string) ($auth['estado'] ?? ''));
+        // 4. Transaction #2: Aplicar resultado final
+        return DB::transaction(function () use ($invoice, $auth) {
+            $invoice->refresh();
 
-                \Illuminate\Support\Facades\Log::info("SRI: Polling autorización #$i para $claveAcceso. Estado: $estadoAuth");
+            $estadoAuthFinal = strtoupper((string) ($auth['estado'] ?? ''));
 
-                if ($estadoAuth === 'AUTORIZADO' || $estadoAuth === 'NO AUTORIZADO') {
-                    break;
-                }
-
-                if ($i < $maxRetries) {
-                    if ($skipReception) {
-                        // Reintentos suaves (backoff): 2s, 4s, 8s
-                        $wait = pow(2, $i);
-                        sleep($wait);
-                    } else {
-                        // Esperar 1 segundo antes de reintentar
-                        usleep(1000000);
-                    }
-                }
-            }
-
-            if ($this->authStillProcessing($auth)) {
+            if ($estadoAuthFinal === 'ERROR_AUTORIZACION' || $this->authStillProcessing($auth)) {
                 $invoice->estado_sri = 'EN_PROCESO';
+                $invoice->mensajes_sri_json = !empty($auth['mensajes']) ? $auth['mensajes'] : $invoice->mensajes_sri_json;
                 $invoice->save();
-                return ['status' => 'PROCESSING', 'auth' => $auth];
+                return ['status' => 'PROCESSING', 'invoice' => $invoice->fresh(), 'auth' => $auth];
             }
 
-            // Procesar resultado final (Autorizado / Rechazado / etc)
             return $this->applyAuthorizationResult($invoice, $auth);
         });
     }
+
+    private function shouldSkipReception(ElectronicInvoice $invoice): bool
+    {
+        $state = strtoupper((string) ($invoice->estado_sri ?? ''));
+
+        // Si ya marcaste ENVIADO, tiene sentido ir directo a autorización.
+        if ($state === 'ENVIADO') {
+            return true;
+        }
+
+        // EN_PROCESO solo se “salta” si realmente tienes señal de 70 o duplicado/recibida
+        if ($state === 'EN_PROCESO') {
+            $recep = [
+                'estado' => $invoice->estado_sri,
+                'mensajes' => is_array($invoice->mensajes_sri_json) ? $invoice->mensajes_sri_json : [],
+            ];
+
+            return $this->hasProcessing70($recep)
+                || $this->isDuplicateAlreadyExists($recep)
+                || $this->isRecibida($recep);
+        }
+
+        // PENDIENTE_REINTENTO => NO se salta: hay que reenviar a recepción.
+        return false;
+    }
+
+    public function pollAuthorizationOnly(int $saleId): array
+    {
+        $invoice = $this->repo->findBySaleId($saleId);
+        if (!$invoice) {
+            return ['status' => 'ERROR', 'message' => 'Invoice no encontrado'];
+        }
+
+        if (strtoupper((string) $invoice->estado_sri) === 'AUTORIZADO') {
+            return ['status' => 'AUTORIZADO', 'invoice' => $invoice];
+        }
+
+        $cfg = $this->getCfgOrFail();
+        $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
+        $claveAcceso = $invoice->clave_acceso;
+
+        $backoffs = [2, 4, 8, 15, 30, 30, 30, 30, 30, 30, 30, 30];
+        $auth = [];
+
+        foreach ($backoffs as $index => $waitSeconds) {
+            $auth = $this->callAutorizacion($urls['authorization_wsdl'], $claveAcceso);
+            $estadoAuth = strtoupper((string) ($auth['estado'] ?? ''));
+
+            Log::info("SRI: Reintento Polling #" . ($index + 1) . " para $claveAcceso. Estado: $estadoAuth");
+
+            if ($estadoAuth === 'AUTORIZADO' || $estadoAuth === 'NO AUTORIZADO') {
+                break;
+            }
+            if ($index < count($backoffs) - 1) {
+                sleep($waitSeconds);
+            }
+        }
+
+        return DB::transaction(function () use ($invoice, $auth) {
+            $invoice->refresh();
+            $estadoAuthFinal = strtoupper((string) ($auth['estado'] ?? ''));
+
+            if ($estadoAuthFinal === 'ERROR_AUTORIZACION' || $this->authStillProcessing($auth)) {
+                $invoice->estado_sri = 'EN_PROCESO';
+                $invoice->mensajes_sri_json = !empty($auth['mensajes']) ? $auth['mensajes'] : $invoice->mensajes_sri_json;
+                $invoice->save();
+                return ['status' => 'PROCESSING', 'invoice' => $invoice->fresh()];
+            }
+
+            return $this->applyAuthorizationResult($invoice, $auth);
+        });
+    }
+
 
     public function hasProcessing70(array $recep)
     {
@@ -275,16 +371,19 @@ class SriInvoiceService
         return false;
     }
 
-    public function isDuplicateAlreadyExists(array $recep)
+    public function isDuplicateAlreadyExists(array $recep): bool
     {
         $msgs = $this->extractAllMessages($recep);
 
+        // ✅ si hay 70, NO es duplicado
         foreach ($msgs as $m) {
-            $msg = strtoupper((string) ($m['mensaje'] ?? ''));
-            $inf = strtoupper((string) ($m['informacionAdicional'] ?? ''));
+            if ((string) ($m['identificador'] ?? '') === '70') {
+                return false;
+            }
+        }
 
-            $text = $msg . ' ' . $inf;
-            // Detección de duplicado real (excluyendo "PROCEDIMIENTO: SI" que sale en Error 70)
+        foreach ($msgs as $m) {
+            $text = strtoupper((string) ($m['mensaje'] ?? '') . ' ' . (string) ($m['informacionAdicional'] ?? ''));
             if (
                 str_contains($text, 'YA EXISTE') ||
                 str_contains($text, 'COMPROBANTE YA REGISTRADO') ||
@@ -296,6 +395,7 @@ class SriInvoiceService
         return false;
     }
 
+
     public function isRecibida(array $recep)
     {
         $estado = $this->findValueRecursive($recep, 'estado');
@@ -306,9 +406,15 @@ class SriInvoiceService
     private function authStillProcessing(array $auth): bool
     {
         $estado = strtoupper((string) ($auth['estado'] ?? ''));
-        // Estados que indican que hay que seguir esperando
-        return in_array($estado, ['EN PROCESO', 'EN PROCESAMIENTO', 'SIN_RESPUESTA', '']);
+        return in_array($estado, [
+            'EN PROCESO',
+            'EN PROCESAMIENTO',
+            'SIN_RESPUESTA',
+            'ERROR_AUTORIZACION',
+            ''
+        ], true);
     }
+
 
     private function applyAuthorizationResult(ElectronicInvoice $invoice, array $auth): array
     {
@@ -389,22 +495,41 @@ class SriInvoiceService
             'exceptions' => true,
             'cache_wsdl' => WSDL_CACHE_MEMORY,
             'connection_timeout' => 20,
+            'soap_version' => SOAP_1_1,
+            'features' => SOAP_SINGLE_ELEMENT_ARRAYS,
         ]);
     }
+
 
     private function callRecepcion(string $wsdl, string $xmlRaw): array
     {
         try {
             $client = $this->soapClient($wsdl);
 
-            \Illuminate\Support\Facades\Log::info('🐛 DEBUG XML pre-envío', [
-                'xml_length' => strlen($xmlRaw),
-                'has_claveAcceso' => str_contains($xmlRaw, '<claveAcceso>'),
-            ]);
+            // 1) Normalizar XML (evita BOM / espacios antes del prolog)
+            $xmlRaw = $this->stripUtf8Bom($xmlRaw);
+            $xmlRaw = ltrim($xmlRaw); // IMPORTANTÍSIMO: nada antes de <?xml o <factura
 
-            $resp = $client->validarComprobante(['xml' => $xmlRaw]);
+            if (!mb_check_encoding($xmlRaw, 'UTF-8')) {
+                $xmlRaw = mb_convert_encoding($xmlRaw, 'UTF-8');
+            }
 
+            // 2) Validación local rápida (para detectar basura antes de enviar)
+            $this->assertWellFormedXml($xmlRaw, 'signed-before-send');
+
+            /**
+             * 3) Enviar como base64Binary SIN hacer base64_encode manual.
+             * PHP SOAP se encarga de codificar 1 sola vez cuando usas XSD_BASE64BINARY.
+             */
+            $xmlParam = new \SoapVar($xmlRaw, XSD_BASE64BINARY);
+            $resp = $client->validarComprobante(['xml' => $xmlParam]);
+
+            // 4) Parsear respuesta
             $estado = $resp->RespuestaRecepcionComprobante->estado ?? null;
+            if ($estado === null) {
+                $estado = $this->findValueRecursive($this->toArray($resp), 'estado');
+            }
+
             $mensajes = [];
             $comprobantes = $resp->RespuestaRecepcionComprobante->comprobantes->comprobante ?? null;
 
@@ -426,20 +551,12 @@ class SriInvoiceService
                 }
             }
 
-            $finalResponse = [
-                'estado' => $estado,
-                'mensajes' => $mensajes
-            ];
-
-            \Illuminate\Support\Facades\Log::info('SRI: callRecepcion Return', $finalResponse);
-
-            return $finalResponse;
+            return ['estado' => $estado, 'mensajes' => $mensajes];
 
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('SRI Recepcion SOAP error', [
+            Log::error('SRI Recepcion SOAP error', [
                 'wsdl' => $wsdl,
                 'error' => $e->getMessage(),
-                'trace' => substr($e->getTraceAsString(), 0, 500)
             ]);
 
             return [
@@ -454,6 +571,30 @@ class SriInvoiceService
                 ]
             ];
         }
+    }
+
+
+    private function xmlToBase64(string $xml): string
+    {
+        // Si ya parece base64 de XML, no lo re-encodees
+        $decoded = base64_decode($xml, true);
+        if ($decoded !== false) {
+            $head = ltrim($decoded);
+            if (str_starts_with($head, '<?xml') || str_starts_with($head, '<factura') || str_starts_with($head, '<')) {
+                return $xml;
+            }
+        }
+        return base64_encode($xml);
+    }
+
+    private function stripUtf8Bom(string $s): string
+    {
+        return str_starts_with($s, "\xEF\xBB\xBF") ? substr($s, 3) : $s;
+    }
+
+    private function toArray(mixed $obj): array
+    {
+        return json_decode(json_encode($obj), true) ?: [];
     }
 
 
@@ -599,18 +740,24 @@ class SriInvoiceService
 
 
 
-    private function buildFacturaXml(Sale $sale, SriConfig $cfg, string $claveAcceso, string $estab, string $pto, string $secuencial): string
-    {
+    private function buildFacturaXml(
+        Sale $sale,
+        SriConfig $cfg,
+        string $claveAcceso,
+        string $estab,
+        string $pto,
+        string $secuencial
+    ): string {
         $xml = new \DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = false;
         $xml->preserveWhiteSpace = false;
 
-        // Función helper para crear elementos sin namespace (estilo SRI estándar)
         $el = function ($name, $value = null, $parent = null) use ($xml) {
             $node = $xml->createElement($name);
             if ($value !== null) {
-                // Usamos createTextNode para evitar problemas con caracteres especiales (escapado automático)
-                $node->appendChild($xml->createTextNode($this->cleanXmlString((string) $value, false)));
+                $node->appendChild(
+                    $xml->createTextNode($this->cleanXmlString((string) $value, false))
+                );
             }
             if ($parent) {
                 $parent->appendChild($node);
@@ -618,18 +765,18 @@ class SriInvoiceService
             return $node;
         };
 
-        // Nodo raíz (sin namespace para maximizar compatibilidad con validadores antiguos/picky)
+        // Root
         $factura = $xml->createElement('factura');
         $factura->setAttribute('id', 'comprobante');
         $factura->setAttribute('version', '1.1.0');
         $xml->appendChild($factura);
 
-        // --- infoTributaria ---
+        // infoTributaria
         $infoTrib = $el('infoTributaria', null, $factura);
         $el('ambiente', $cfg->ambiente ?? 1, $infoTrib);
         $el('tipoEmision', '1', $infoTrib);
-        $el('razonSocial', $cfg->razon_social ?? 'EMISOR', $infoTrib);
-        $el('nombreComercial', $cfg->nombre_comercial ?? ($cfg->razon_social ?? 'EMISOR'), $infoTrib);
+        $el('razonSocial', mb_substr((string) ($cfg->razon_social ?? 'EMISOR'), 0, 300), $infoTrib);
+        $el('nombreComercial', mb_substr((string) ($cfg->nombre_comercial ?? ($cfg->razon_social ?? 'EMISOR')), 0, 300), $infoTrib);
         $el('ruc', preg_replace('/\D+/', '', (string) $cfg->ruc), $infoTrib);
         $el('claveAcceso', $claveAcceso, $infoTrib);
         $el('codDoc', '01', $infoTrib);
@@ -638,10 +785,9 @@ class SriInvoiceService
         $el('secuencial', $secuencial, $infoTrib);
         $el('dirMatriz', $cfg->direccion_matriz ?? 'S/D', $infoTrib);
 
-        // --- infoFactura ---
+        // infoFactura
         $infoFac = $el('infoFactura', null, $factura);
-        $fechaEmision = Carbon::parse($sale->fecha_venta)->format('d/m/Y');
-        $el('fechaEmision', $fechaEmision, $infoFac);
+        $el('fechaEmision', Carbon::parse($sale->fecha_venta)->format('d/m/Y'), $infoFac);
         $el('dirEstablecimiento', $cfg->direccion_establecimiento ?? ($cfg->direccion_matriz ?? 'S/D'), $infoFac);
 
         if (!empty($cfg->contribuyente_especial)) {
@@ -652,33 +798,48 @@ class SriInvoiceService
 
         [$tipoIdComprador, $compradorId, $compradorNombre] = $this->resolveCompradorSri($sale);
         $el('tipoIdentificacionComprador', $tipoIdComprador, $infoFac);
-        $el('razonSocialComprador', $compradorNombre, $infoFac);
+        $el('razonSocialComprador', mb_substr((string) $compradorNombre, 0, 300), $infoFac);
         $el('identificacionComprador', $compradorId, $infoFac);
 
-        $totalSinImpuestosN = 0.0;
-        $ivaTotalN = 0.0;
+        // Totales
+        $totalSinImpuestos = 0.0;  // base neta sin IVA
+        $totalDescuento = 0.0;    // descuento real sumado
+        $ivaTotal = 0.0;
+
         $totalesIva = [];
 
         foreach ($sale->items as $it) {
-            $base = round((float) $it->total, 2);
+            $qty = (float) $it->cantidad;
+
+            $base = round((float) ($it->total ?? 0), 2); // sin IVA
+            $desc = round((float) ($it->descuento ?? 0), 2);
+
+            if ($desc < 0)
+                $desc = 0;
+            if ($qty <= 0)
+                $qty = 1;
+
+            // subtotal (antes de descuento) derivado de lo persistido (base + desc)
+            $subtotalLinea = round($base + $desc, 2);
+
             $pct = round((float) ($it->iva_porcentaje ?? 0), 2);
             $ivaLinea = round($base * ($pct / 100), 2);
 
-            $totalSinImpuestosN += $base;
-            $ivaTotalN += $ivaLinea;
+            $totalSinImpuestos += $base;
+            $totalDescuento += $desc;
+            $ivaTotal += $ivaLinea;
 
             $codPct = $this->sriCodigoPorcentajeIva($pct);
             if (!isset($totalesIva[$codPct])) {
-                $totalesIva[$codPct] = ['tarifa' => $pct, 'base' => 0.0, 'valor' => 0.0];
+                $totalesIva[$codPct] = ['base' => 0.0, 'valor' => 0.0];
             }
             $totalesIva[$codPct]['base'] += $base;
             $totalesIva[$codPct]['valor'] += $ivaLinea;
         }
 
-        $el('totalSinImpuestos', number_format($totalSinImpuestosN, 2, '.', ''), $infoFac);
-        $el('totalDescuento', '0.00', $infoFac);
+        $el('totalSinImpuestos', number_format($totalSinImpuestos, 2, '.', ''), $infoFac);
+        $el('totalDescuento', number_format($totalDescuento, 2, '.', ''), $infoFac);
 
-        // totalConImpuestos
         $tci = $el('totalConImpuestos', null, $infoFac);
         foreach ($totalesIva as $cod => $t) {
             $ti = $el('totalImpuesto', null, $tci);
@@ -689,40 +850,113 @@ class SriInvoiceService
         }
 
         $el('propina', '0.00', $infoFac);
-        $el('importeTotal', number_format($totalSinImpuestosN + $ivaTotalN, 2, '.', ''), $infoFac);
+        $el('importeTotal', number_format($totalSinImpuestos + $ivaTotal, 2, '.', ''), $infoFac);
         $el('moneda', 'DOLAR', $infoFac);
 
         // pagos
+        $paymentMethodName = (string) optional($sale->payments->first()?->paymentMethod)->nombre;
+        $forma = $this->mapFormaPagoSri($paymentMethodName);
+
         $pagos = $el('pagos', null, $infoFac);
         $pago = $el('pago', null, $pagos);
-        $el('formaPago', '01', $pago);
-        $el('total', number_format($totalSinImpuestosN + $ivaTotalN, 2, '.', ''), $pago);
+        $el('formaPago', $forma, $pago);
+        $el('total', number_format($totalSinImpuestos + $ivaTotal, 2, '.', ''), $pago);
         $el('plazo', '0', $pago);
         $el('unidadTiempo', 'dias', $pago);
 
-        // --- detalles ---
+        // detalles
         $detallesNode = $el('detalles', null, $factura);
+
         foreach ($sale->items as $it) {
             $det = $el('detalle', null, $detallesNode);
-            $el('codigoPrincipal', $it->producto?->codigo_barras ?? $it->producto_id, $det);
-            $el('descripcion', $it->descripcion, $det);
-            $el('cantidad', number_format($it->cantidad, 6, '.', ''), $det);
-            $el('precioUnitario', number_format($it->precio_unitario, 6, '.', ''), $det);
-            $el('descuento', '0.00', $det);
-            $el('precioTotalSinImpuesto', number_format($it->total, 2, '.', ''), $det);
+
+            $qty = (float) $it->cantidad;
+            if ($qty <= 0)
+                $qty = 1;
+
+            $base = round((float) ($it->total ?? 0), 2);
+            $desc = round((float) ($it->descuento ?? 0), 2);
+            if ($desc < 0)
+                $desc = 0;
+
+            $subtotalLinea = round($base + $desc, 2);
+
+            // ✅ precio unitario calculado para que cuadre con subtotal y descuento
+            $precioUnitarioXml = $qty > 0 ? round($subtotalLinea / $qty, 6) : 0.0;
+
+            $pct = round((float) ($it->iva_porcentaje ?? 0), 2);
+            $ivaLinea = round($base * ($pct / 100), 2);
+
+            $el('codigoPrincipal', (string) ($it->producto?->codigo_barras ?? $it->producto_id), $det);
+            $el('descripcion', mb_substr((string) $it->descripcion, 0, 300), $det);
+
+            $el('cantidad', number_format($qty, 6, '.', ''), $det);
+            $el('precioUnitario', number_format($precioUnitarioXml, 6, '.', ''), $det);
+
+            $el('descuento', number_format($desc, 2, '.', ''), $det);
+            $el('precioTotalSinImpuesto', number_format($base, 2, '.', ''), $det);
 
             $imps = $el('impuestos', null, $det);
             $imp = $el('impuesto', null, $imps);
-            $pct = (float) ($it->iva_porcentaje ?? 0);
+
             $el('codigo', '2', $imp);
             $el('codigoPorcentaje', $this->sriCodigoPorcentajeIva($pct), $imp);
-            $el('tarifa', number_format($pct, 0, '.', ''), $imp);
-            $el('baseImponible', number_format($it->total, 2, '.', ''), $imp);
-            $el('valor', number_format($it->total * ($pct / 100), 2, '.', ''), $imp);
+            $el('tarifa', number_format($pct, 2, '.', ''), $imp);
+            $el('baseImponible', number_format($base, 2, '.', ''), $imp);
+            $el('valor', number_format($ivaLinea, 2, '.', ''), $imp);
         }
 
         return $xml->saveXML();
     }
+
+
+
+    private function assertWellFormedXml(string $xml, string $stage): void
+    {
+        libxml_use_internal_errors(true);
+
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $ok = $dom->loadXML($xml);
+
+        if (!$ok) {
+            $errs = array_map(fn($e) => trim($e->message), libxml_get_errors());
+            libxml_clear_errors();
+
+            Log::error("SRI XML MAL FORMADO ($stage)", ['errors' => $errs]);
+            throw ValidationException::withMessages(['sri' => "XML mal formado ($stage): " . ($errs[0] ?? 'error')]);
+        }
+    }
+
+    private function assertSchemaValid(string $xml, string $xsdPath, string $stage): void
+    {
+        libxml_use_internal_errors(true);
+
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom->loadXML($xml, LIBXML_NOBLANKS);
+
+        if (!$dom->schemaValidate($xsdPath)) {
+            $errs = array_map(fn($e) => trim($e->message), libxml_get_errors());
+            libxml_clear_errors();
+
+            Log::error("SRI XML NO CUMPLE XSD ($stage)", ['errors' => $errs]);
+            throw ValidationException::withMessages(['sri' => "XML no cumple XSD ($stage): " . ($errs[0] ?? 'error')]);
+        }
+    }
+
+    private function maybeValidateFacturaXsd(string $xml, string $stage): void
+    {
+        // Ajusta esta ruta si tú guardas el XSD en otro lado
+        $xsdPath = storage_path('app/sri/xsd/factura.xsd');
+
+        if (!is_file($xsdPath)) {
+            Log::warning("SRI: XSD no encontrado, se omite schemaValidate ($stage)", ['xsd' => $xsdPath]);
+            return;
+        }
+
+        $this->assertSchemaValid($xml, $xsdPath, $stage);
+    }
+
+
 
     private function cleanXmlString(string $str, bool $escape = true): string
     {
@@ -801,7 +1035,13 @@ class SriInvoiceService
 
             $unsignedXml = Storage::disk('local')->get($unsignedPath);
 
+            $this->assertWellFormedXml($unsignedXml, 'unsigned-before-sign');
+            $this->maybeValidateFacturaXsd($unsignedXml, 'unsigned-before-sign');
+
             $signedXml = $this->signXadesBesSha256($unsignedXml, $certPath, $certPass);
+
+            $this->assertWellFormedXml($signedXml, 'signed-after-sign');
+            $this->maybeValidateFacturaXsd($signedXml, 'signed-after-sign');
 
             $dir = "sri/xml/firmados";
             Storage::disk('local')->makeDirectory($dir);
@@ -815,7 +1055,7 @@ class SriInvoiceService
             \Illuminate\Support\Facades\Log::info('🐛 DEBUG XML FIRMADO', [
                 'xml_length' => strlen($signedXml),
                 'has_claveAcceso' => str_contains($signedXml, '<claveAcceso>'),
-                'xml_full' => $signedXml, // ⚠️ Ver XML completo para debug
+                'claveAcceso' => $invoice->clave_acceso,
             ]);
 
             $invoice->xml_firmado_path = $signedPath;
@@ -1166,4 +1406,99 @@ class SriInvoiceService
 
         return array_values($unique);
     }
+
+    public function processSaleInvoice(int $saleId): array
+    {
+        // Asegura XML generado y firmado (idempotente)
+        $this->generateXmlForSale($saleId);
+        $invoice = $this->signXmlForSale($saleId);
+
+        $invoice->refresh();
+        $estado = strtoupper((string) ($invoice->estado_sri ?? ''));
+
+        if ($estado === 'AUTORIZADO') {
+            return ['status' => 'AUTORIZADO', 'invoice' => $invoice];
+        }
+
+        $cfg = $this->getCfgOrFail();
+        $urls = $this->getWsdlUrls((int) ($cfg->ambiente ?? 1));
+
+        // 1) Recepción SOLO si aún no fue enviado
+        if (!in_array($estado, ['ENVIADO', 'EN_PROCESO'], true)) {
+            $signedXml = Storage::disk('local')->get($invoice->xml_firmado_path);
+            $recep = $this->callRecepcion($urls['reception_wsdl'], $signedXml);
+            Log::info('SRI RECEPCION RAW', [
+                'clave' => $invoice->clave_acceso,
+                'resp' => $recep,
+            ]);
+
+
+            $decision = $this->applyReceptionResult($invoice->id, $recep);
+
+            if (($decision['status'] ?? '') === 'PROCESSING') {
+                return ['status' => 'PROCESSING', 'invoice' => $decision['invoice'] ?? $invoice, 'recep' => $recep];
+            }
+
+            if (in_array(strtoupper((string) ($decision['status'] ?? '')), ['RECHAZADO', 'REJECTED'], true)) {
+                return ['status' => 'RECHAZADO', 'invoice' => $decision['invoice'] ?? $invoice, 'recep' => $recep];
+            }
+
+            // Si quedó ENVIADO, seguimos a autorización
+            $invoice = ($decision['invoice'] ?? $invoice)->fresh();
+        }
+
+        // 2) Autorización (una llamada). Si está procesando => PROCESSING y el Job reintenta
+        $auth = $this->callAutorizacion($urls['authorization_wsdl'], $invoice->clave_acceso);
+
+        return DB::transaction(function () use ($invoice, $auth) {
+            $invoice->refresh();
+
+            $estadoAuth = strtoupper((string) ($auth['estado'] ?? ''));
+
+            if ($estadoAuth === 'ERROR_AUTORIZACION' || $this->authStillProcessing($auth)) {
+                $invoice->estado_sri = 'EN_PROCESO';
+                if (!empty($auth['mensajes'])) {
+                    $invoice->mensajes_sri_json = $auth['mensajes'];
+                }
+                $invoice->save();
+
+                return ['status' => 'PROCESSING', 'invoice' => $invoice->fresh(), 'auth' => $auth];
+            }
+
+            return $this->applyAuthorizationResult($invoice, $auth);
+        });
+    }
+
+    private function applyReceptionResult(int $invoiceId, array $recep): array
+    {
+        return DB::transaction(function () use ($invoiceId, $recep) {
+            $invoice = ElectronicInvoice::lockForUpdate()->findOrFail($invoiceId);
+
+            $estadoRec = strtoupper((string) ($recep['estado'] ?? ''));
+            $mensajes = $this->extractAllMessages($recep);
+
+            $is70 = $this->hasProcessing70($recep);
+            $isDup = $this->isDuplicateAlreadyExists($recep);
+            $recibida = ($estadoRec === 'RECIBIDA');
+
+            $invoice->mensajes_sri_json = $mensajes;
+
+            if ($is70) {
+                $invoice->estado_sri = 'EN_PROCESO';
+                $invoice->save();
+                return ['status' => 'PROCESSING', 'invoice' => $invoice->fresh()];
+            }
+
+            if ($recibida || $isDup) {
+                $invoice->estado_sri = 'ENVIADO';
+                $invoice->save();
+                return ['status' => 'ENVIADO', 'invoice' => $invoice->fresh()];
+            }
+
+            $invoice->estado_sri = 'RECHAZADO';
+            $invoice->save();
+            return ['status' => 'RECHAZADO', 'invoice' => $invoice->fresh()];
+        });
+    }
+
 }
