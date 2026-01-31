@@ -23,12 +23,17 @@ class SriConfig extends Model
         'ambiente',
         'emision',
         'ruta_certificado',
+        'certificado_password',
         'obligado_contabilidad',
+    ];
+
+    protected $hidden = [
+        'certificado_password',
     ];
 
     protected $casts = [
         'secuencial_factura_actual' => 'integer',
-        'obligado_contabilidad'     => 'boolean',
+        'obligado_contabilidad' => 'boolean',
     ];
 
     /**
@@ -36,15 +41,19 @@ class SriConfig extends Model
      */
     public function getCertPasswordAttribute(): ?string
     {
+        if (!empty($this->certificado_password)) {
+            return $this->certificado_password;
+        }
         return env('SRI_CERT_PASSWORD');
     }
 
     /**
-     * Path
+     * Path absoluto del certificado en storage/app/sri/certs/
      */
     public function getCertAbsolutePathAttribute(): ?string
     {
-        if (!$this->ruta_certificado) return null;
-        return storage_path('app/' . ltrim($this->ruta_certificado, '/'));
+        if (!$this->ruta_certificado)
+            return null;
+        return \Illuminate\Support\Facades\Storage::disk('sri')->path($this->ruta_certificado);
     }
 }

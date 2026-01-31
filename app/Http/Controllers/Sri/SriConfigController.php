@@ -8,7 +8,9 @@ use App\Services\Sri\SriConfigService;
 
 class SriConfigController extends Controller
 {
-    public function __construct(private SriConfigService $service) {}
+    public function __construct(private SriConfigService $service)
+    {
+    }
 
     public function edit()
     {
@@ -22,17 +24,34 @@ class SriConfigController extends Controller
 
     public function store(UpsertSriConfigRequest $request)
     {
-        $data = $request->validated();
+        try {
+            $data = $request->validated();
 
-        $certFile = $request->file('certificado_p12');
-        unset($data['certificado_p12']);
+            $certFile = $request->file('certificado_p12');
+            unset($data['certificado_p12']);
 
-        $config = $this->service->save($data, $certFile);
+            $config = $this->service->save($data, $certFile);
 
-        return redirect()
-            ->route('sri.config.edit')
-            ->with('success', 'Configuración SRI guardada correctamente.')
-            ->with('clear_form', true); 
+            return redirect()
+                ->route('sri.config.edit')
+                ->with('success', '✅ Configuración SRI guardada correctamente. El certificado ha sido convertido y validado.')
+                ->with('clear_form', true);
+        } catch (\Exception $e) {
+            return redirect()
+                ->route('sri.config.edit')
+                ->withErrors(['sri' => $e->getMessage()])
+                ->withInput();
+        }
+    }
+
+    public function testConfig()
+    {
+        try {
+            $msg = $this->service->testCertificate();
+            return back()->with('success', $msg);
+        } catch (\Exception $e) {
+            return back()->withErrors(['sri' => $e->getMessage()]);
+        }
     }
 
 }

@@ -14,25 +14,27 @@ class UpsertSriConfigRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'ruc' => ['required','digits:13'],
-            'razon_social' => ['required','string','max:255'],
-            'nombre_comercial' => ['nullable','string','max:255'],
+            'ruc' => ['required', 'digits:13'],
+            'razon_social' => ['required', 'string', 'max:255'],
+            'nombre_comercial' => ['nullable', 'string', 'max:255'],
 
-            'direccion_matriz' => ['nullable','string','max:255'],
-            'direccion_establecimiento' => ['nullable','string','max:255'],
+            'direccion_matriz' => ['nullable', 'string', 'max:255'],
+            'direccion_establecimiento' => ['nullable', 'string', 'max:255'],
 
-            'codigo_establecimiento' => ['required','digits:3'],
-            'codigo_punto_emision' => ['required','digits:3'],
+            'codigo_establecimiento' => ['required', 'digits:3'],
+            'codigo_punto_emision' => ['required', 'digits:3'],
 
-            'secuencial_factura_actual' => ['required','integer','min:1'],
+            'secuencial_factura_actual' => ['required', 'integer', 'min:1'],
 
-            'ambiente' => ['required','in:1,2'], // 1 pruebas, 2 producción
-            'emision' => ['required','in:1'],   
+            'ambiente' => ['required', 'in:1,2'], // 1 pruebas, 2 producción
+            'emision' => ['required', 'in:1'],
 
-            'obligado_contabilidad' => ['nullable','boolean'],
+            'obligado_contabilidad' => ['nullable', 'boolean'],
 
             // Certificado (opcional si ya existe uno guardado)
-            'certificado_p12' => ['nullable','file','mimes:p12,pfx','max:5120'], // 5MB
+            // Certificado (opcional si ya existe uno guardado)
+            'certificado_p12' => ['nullable', 'file', 'mimes:p12,pfx,bin', 'max:5120'], // 5MB
+            'certificado_password' => ['nullable', 'string', 'max:255'],
         ];
     }
 

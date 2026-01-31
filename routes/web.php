@@ -8,17 +8,18 @@ Route::get('/', function () {
 
 // Dashboard
 Route::view('dashboard', 'dashboard')
-    ->middleware(['auth','verified'])
+    ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
 /**
  * CARGA AUTOMÁTICA DE RUTAS EN /resource
  */
-if (! function_exists('require_route_dir')) {
+if (!function_exists('require_route_dir')) {
     function require_route_dir(string $path): void
     {
         foreach (scandir($path) as $entry) {
-            if ($entry === '.' || $entry === '..') continue;
+            if ($entry === '.' || $entry === '..')
+                continue;
 
             $full = $path . DIRECTORY_SEPARATOR . $entry;
 
@@ -32,8 +33,9 @@ if (! function_exists('require_route_dir')) {
 }
 
 Route::middleware(['auth'])->group(function () {
-    require_route_dir(__DIR__.'/resource');
+    Route::post('/sri/config/test', [App\Http\Controllers\Sri\SriConfigController::class, 'testConfig'])->name('sri.config.test');
+    require_route_dir(__DIR__ . '/resource');
 });
 
 // Rutas auth Breeze
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';
