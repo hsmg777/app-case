@@ -53,6 +53,37 @@ class ClientRepository
         return $query->paginate($perPage);
     }
 
+    public function listAll(array $filters = [])
+    {
+        $query = Client::with('emails');
+
+        if (!empty($filters['search'])) {
+            $search = trim($filters['search']);
+
+            $query->where(function ($q) use ($search) {
+                $q->where('business', 'like', "%{$search}%")
+                    ->orWhere('identificacion', 'like', "%{$search}%")
+                    ->orWhere('telefono', 'like', "%{$search}%");
+            });
+        }
+
+        if (!empty($filters['tipo'])) {
+            $query->where('tipo', $filters['tipo']);
+        }
+
+        if (!empty($filters['estado'])) {
+            $query->where('estado', $filters['estado']);
+        }
+
+        if (!empty($filters['ciudad'])) {
+            $query->where('ciudad', 'like', "%{$filters['ciudad']}%");
+        }
+
+        $query->orderByDesc('created_at');
+
+        return $query->get();
+    }
+
     /**
      * Obtener un cliente por ID (lanza 404 si no existe).
      */

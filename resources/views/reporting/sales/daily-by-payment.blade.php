@@ -12,6 +12,11 @@
         </div>
     </x-slot>
 
+    @php
+        $payLabels = collect($rows ?? [])->map(fn($r) => $r->metodo ?? 'N/D')->values();
+        $payTotals = collect($rows ?? [])->map(fn($r) => (float) ($r->total_monto ?? 0))->values();
+    @endphp
+
     <div class="py-6">
         <div class="max-w-7xl mx-auto px-6 lg:px-8">
             <div class="bg-white border border-blue-100 rounded-xl p-4 mb-6 overflow-hidden">
@@ -91,6 +96,15 @@
                 </div>
             </div>
 
+            <div class="bg-white shadow-sm border border-blue-100 rounded-xl overflow-hidden mb-6">
+                <div class="p-4">
+                    <div class="text-sm text-blue-900 font-semibold mb-3">Grafico por forma de pago</div>
+                    <div class="h-48">
+                        <canvas id="paymentChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <div class="bg-white shadow-sm border border-blue-100 rounded-xl overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-blue-100 text-sm">
@@ -143,4 +157,50 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            const labels = @json($payLabels);
+            const totals = @json($payTotals);
+
+            function initChart() {
+                if (!window.Chart) return false;
+                const ctx = document.getElementById('paymentChart');
+                if (!ctx) return true;
+
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Total por forma de pago',
+                            data: totals,
+                            backgroundColor: '#1D4ED8'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+
+                return true;
+            }
+
+            let tries = 0;
+            function tryInit() {
+                tries += 1;
+                if (initChart()) return;
+                if (tries < 20) setTimeout(tryInit, 200);
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', tryInit);
+            } else {
+                tryInit();
+            }
+        })();
+    </script>
 </x-app-layout>

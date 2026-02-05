@@ -15,6 +15,7 @@ Route::middleware(['auth', 'verified', 'role:cashier|admin|supervisor'])
     ->group(function () {
 
         Route::get('/', [ClientController::class, 'index'])->name('index');
+        Route::get('/export', [ClientController::class, 'export'])->name('export');
 
         Route::post('/', [ClientController::class, 'store'])->name('store');
 

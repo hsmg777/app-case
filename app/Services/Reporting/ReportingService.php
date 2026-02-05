@@ -7,6 +7,7 @@ use App\Repositories\Reporting\ReportingRepository;
 use App\Services\Store\BodegaService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Symfony\Component\HttpFoundation\Response;
 
 class ReportingService
@@ -362,6 +363,518 @@ class ReportingService
 
         if ($sessions->isEmpty()) {
             $html[] = '<tr><td colspan="13">No hay cierres registrados para este dia.</td></tr>';
+        }
+
+        $html[] = '</table>';
+        $html[] = '</body></html>';
+
+        return implode('', $html);
+    }
+
+    public function getMonthlySalesReport(Request $request): array
+    {
+        $selectedMes = trim((string) $request->query('mes', ''));
+
+        $minMax = $this->reporting->getSalesMinMaxDates();
+        $rows = collect();
+        $months = collect();
+
+        if ($minMax) {
+            $fromAll = $minMax['min']->copy()->startOfMonth();
+            $toAll = $minMax['max']->copy()->endOfMonth();
+
+            $rowsAll = $this->reporting->getMonthlySalesSummary($fromAll, $toAll);
+
+            $map = $rowsAll->mapWithKeys(function ($row) {
+                $key = Carbon::parse($row->mes)->format('Y-m');
+                return [$key => $row];
+            });
+
+            $cursor = $fromAll->copy();
+            while ($cursor <= $toAll) {
+                $key = $cursor->format('Y-m');
+                $label = $cursor->locale('es')->translatedFormat('F Y');
+
+                $months->push([
+                    'value' => $key,
+                    'label' => $label,
+                ]);
+
+                if ($map->has($key)) {
+                    $rows->push($map->get($key));
+                } else {
+                    $rows->push((object) [
+                        'mes' => $cursor->copy(),
+                        'comprobantes' => 0,
+                        'sub15' => 0,
+                        'sub0' => 0,
+                        'iva' => 0,
+                        'total' => 0,
+                    ]);
+                }
+
+                $cursor->addMonth();
+            }
+
+            if ($selectedMes !== '') {
+                $rows = $rows->filter(function ($row) use ($selectedMes) {
+                    $key = Carbon::parse($row->mes)->format('Y-m');
+                    return $key === $selectedMes;
+                })->values();
+            }
+        }
+
+        $rowsChart = $rows;
+
+        $perPage = 12;
+        $page = (int) $request->query('monthly_page', 1);
+        if ($page < 1) {
+            $page = 1;
+        }
+
+        $rowsTable = new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'pageName' => 'monthly_page',
+                'query' => $request->query(),
+            ]
+        );
+
+        return [
+            'mes' => $selectedMes,
+            'months' => $months,
+            'rowsChart' => $rowsChart,
+            'rowsTable' => $rowsTable,
+        ];
+    }
+
+    public function exportMonthlySalesReport(Request $request): Response
+    {
+        $payload = $this->getMonthlySalesReport($request);
+
+        $rows = $payload['rowsChart'] ?? collect();
+        $mesFiltro = (string) ($payload['mes'] ?? '');
+
+        $filename = $mesFiltro !== ''
+            ? "ventas_mensuales_{$mesFiltro}.xls"
+            : 'ventas_mensuales_todos.xls';
+
+        $html = $this->buildMonthlySalesExcelHtml($rows);
+
+        return response($html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    private function buildMonthlySalesExcelHtml($rows): string
+    {
+        $headerBg = '#1D4ED8';
+        $headerText = '#FFFFFF';
+        $subHeaderBg = '#DBEAFE';
+        $border = '#BFDBFE';
+        $text = '#0F172A';
+
+        $html = [];
+        $html[] = '<html><head><meta charset="utf-8" />';
+        $html[] = '<style>';
+        $html[] = "body{font-family:Calibri, Arial, sans-serif;color:{$text};}";
+        $html[] = "table{border-collapse:collapse;width:100%;}";
+        $html[] = "th,td{border:1px solid {$border};padding:6px;font-size:12px;}";
+        $html[] = ".title{background:{$headerBg};color:{$headerText};font-weight:bold;font-size:16px;text-align:left;}";
+        $html[] = ".section{background:{$subHeaderBg};font-weight:bold;}";
+        $html[] = ".right{text-align:right;}";
+        $html[] = '</style></head><body>';
+
+        $html[] = '<table>';
+        $html[] = '<tr><td class="title" colspan="6">Reporte mensual de ventas</td></tr>';
+        $html[] = '<tr><td class="section" colspan="6">Detalle mensual</td></tr>';
+        $html[] = '<tr>';
+        $html[] = '<th>Mes</th><th class="right">Comprobantes</th><th class="right">Sub 0</th><th class="right">Sub 15</th><th class="right">IVA 15</th><th class="right">Total</th>';
+        $html[] = '</tr>';
+
+        foreach ($rows as $row) {
+            $mesLabel = $row->mes ? Carbon::parse($row->mes)->locale('es')->translatedFormat('F Y') : 'N/D';
+            $html[] = '<tr>';
+            $html[] = '<td>' . e($mesLabel) . '</td>';
+            $html[] = '<td class="right">' . (int) ($row->comprobantes ?? 0) . '</td>';
+            $html[] = '<td class="right">$' . number_format((float) ($row->sub0 ?? 0), 2) . '</td>';
+            $html[] = '<td class="right">$' . number_format((float) ($row->sub15 ?? 0), 2) . '</td>';
+            $html[] = '<td class="right">$' . number_format((float) ($row->iva ?? 0), 2) . '</td>';
+            $html[] = '<td class="right">$' . number_format((float) ($row->total ?? 0), 2) . '</td>';
+            $html[] = '</tr>';
+        }
+
+        if (empty($rows) || (is_countable($rows) && count($rows) === 0)) {
+            $html[] = '<tr><td colspan="6">No hay ventas registradas.</td></tr>';
+        }
+
+        $html[] = '</table>';
+        $html[] = '</body></html>';
+
+        return implode('', $html);
+    }
+
+    public function getSalesRangeReport(Request $request): array
+    {
+        $fromInput = trim((string) $request->query('desde', ''));
+        $toInput = trim((string) $request->query('hasta', ''));
+        $from = null;
+        $to = null;
+
+        if ($fromInput !== '') {
+            try {
+                $from = Carbon::parse($fromInput)->startOfDay();
+            } catch (\Throwable $e) {
+                $from = null;
+            }
+        }
+
+        if ($toInput !== '') {
+            try {
+                $to = Carbon::parse($toInput)->endOfDay();
+            } catch (\Throwable $e) {
+                $to = null;
+            }
+        }
+
+        if (!$from && !$to) {
+            $to = now()->endOfDay();
+            $from = $to->copy()->subDays(30)->startOfDay();
+        } elseif ($from && !$to) {
+            $to = $from->copy()->endOfDay();
+        } elseif (!$from && $to) {
+            $from = $to->copy()->startOfDay();
+        }
+
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $rangeSummary = $this->reporting->getSalesSummaryByRange($from, $to);
+        $rangeFrequency = $this->reporting->getSalesFrequencyByRange($from, $to);
+        $rangeTable = $this->reporting->getSalesFrequencyByRangePaginated($from, $to, 30);
+
+        return [
+            'desde' => $from->toDateString(),
+            'hasta' => $to->toDateString(),
+            'rangeSummary' => $rangeSummary,
+            'rangeFrequency' => $rangeFrequency,
+            'rangeTable' => $rangeTable,
+        ];
+    }
+
+    public function exportSalesRangeReport(Request $request): Response
+    {
+        $payload = $this->getSalesRangeReport($request);
+
+        $desde = (string) ($payload['desde'] ?? '');
+        $hasta = (string) ($payload['hasta'] ?? '');
+        $filename = "ventas_rango_{$desde}_{$hasta}.xls";
+
+        $html = $this->buildSalesRangeExcelHtml($payload);
+
+        return response($html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    private function buildSalesRangeExcelHtml(array $payload): string
+    {
+        $rangeSummary = $payload['rangeSummary'] ?? null;
+        $rangeFrequency = $payload['rangeFrequency'] ?? collect();
+        $desde = (string) ($payload['desde'] ?? '');
+        $hasta = (string) ($payload['hasta'] ?? '');
+
+        $headerBg = '#1D4ED8';
+        $headerText = '#FFFFFF';
+        $subHeaderBg = '#DBEAFE';
+        $border = '#BFDBFE';
+        $text = '#0F172A';
+
+        $html = [];
+        $html[] = '<html><head><meta charset="utf-8" />';
+        $html[] = '<style>';
+        $html[] = "body{font-family:Calibri, Arial, sans-serif;color:{$text};}";
+        $html[] = "table{border-collapse:collapse;width:100%;}";
+        $html[] = "th,td{border:1px solid {$border};padding:6px;font-size:12px;}";
+        $html[] = ".title{background:{$headerBg};color:{$headerText};font-weight:bold;font-size:16px;text-align:left;}";
+        $html[] = ".section{background:{$subHeaderBg};font-weight:bold;}";
+        $html[] = ".right{text-align:right;}";
+        $html[] = '</style></head><body>';
+
+        $html[] = '<table>';
+        $html[] = '<tr><td class="title" colspan="6">Ventas por rango de fechas</td></tr>';
+        $html[] = '<tr><td class="section" colspan="6">Resumen</td></tr>';
+        $html[] = '<tr><td>Desde</td><td colspan="5">' . e($desde) . '</td></tr>';
+        $html[] = '<tr><td>Hasta</td><td colspan="5">' . e($hasta) . '</td></tr>';
+        $html[] = '<tr><td class="section" colspan="6">Totales</td></tr>';
+        $html[] = '<tr>';
+        $html[] = '<th>Rango</th><th class="right">Comprobantes</th><th class="right">Sub 0</th><th class="right">Sub 15</th><th class="right">IVA 15</th><th class="right">Total</th>';
+        $html[] = '</tr>';
+        $html[] = '<tr>';
+        $html[] = '<td>' . e($desde . ' a ' . $hasta) . '</td>';
+        $html[] = '<td class="right">' . (int) ($rangeSummary->comprobantes ?? 0) . '</td>';
+        $html[] = '<td class="right">$' . number_format((float) ($rangeSummary->sub0 ?? 0), 2) . '</td>';
+        $html[] = '<td class="right">$' . number_format((float) ($rangeSummary->sub15 ?? 0), 2) . '</td>';
+        $html[] = '<td class="right">$' . number_format((float) ($rangeSummary->iva ?? 0), 2) . '</td>';
+        $html[] = '<td class="right">$' . number_format((float) ($rangeSummary->total ?? 0), 2) . '</td>';
+        $html[] = '</tr>';
+
+        $html[] = '<tr><td colspan="6"></td></tr>';
+        $html[] = '<tr><td class="section" colspan="6">Detalle diario</td></tr>';
+        $html[] = '<tr>';
+        $html[] = '<th>Dia</th><th class="right">Comprobantes</th><th class="right" colspan="4">Total</th>';
+        $html[] = '</tr>';
+
+        foreach ($rangeFrequency as $row) {
+            $html[] = '<tr>';
+            $html[] = '<td>' . e($row->dia ?? '') . '</td>';
+            $html[] = '<td class="right">' . (int) ($row->comprobantes ?? 0) . '</td>';
+            $html[] = '<td class="right" colspan="4">$' . number_format((float) ($row->total ?? 0), 2) . '</td>';
+            $html[] = '</tr>';
+        }
+
+        if ($rangeFrequency->isEmpty()) {
+            $html[] = '<tr><td colspan="6">No hay ventas registradas en este rango.</td></tr>';
+        }
+
+        $html[] = '</table>';
+        $html[] = '</body></html>';
+
+        return implode('', $html);
+    }
+
+    public function getTopProductsReport(Request $request): array
+    {
+        $fromInput = trim((string) $request->query('desde', ''));
+        $toInput = trim((string) $request->query('hasta', ''));
+        $from = null;
+        $to = null;
+
+        if ($fromInput !== '') {
+            try {
+                $from = Carbon::parse($fromInput)->startOfDay();
+            } catch (\Throwable $e) {
+                $from = null;
+            }
+        }
+
+        if ($toInput !== '') {
+            try {
+                $to = Carbon::parse($toInput)->endOfDay();
+            } catch (\Throwable $e) {
+                $to = null;
+            }
+        }
+
+        if (!$from && !$to) {
+            $to = now()->endOfDay();
+            $from = $to->copy()->subDays(30)->startOfDay();
+        } elseif ($from && !$to) {
+            $to = $from->copy()->endOfDay();
+        } elseif (!$from && $to) {
+            $from = $to->copy()->startOfDay();
+        }
+
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+
+        $rows = $this->reporting->getTopProductsByQty($from, $to, 5);
+
+        return [
+            'desde' => $from->toDateString(),
+            'hasta' => $to->toDateString(),
+            'rows' => $rows,
+        ];
+    }
+
+    public function exportTopProductsReport(Request $request): Response
+    {
+        $payload = $this->getTopProductsReport($request);
+
+        $desde = (string) ($payload['desde'] ?? '');
+        $hasta = (string) ($payload['hasta'] ?? '');
+        $filename = "top_productos_{$desde}_{$hasta}.xls";
+
+        $html = $this->buildTopProductsExcelHtml($payload);
+
+        return response($html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    private function buildTopProductsExcelHtml(array $payload): string
+    {
+        $rows = $payload['rows'] ?? collect();
+        $desde = (string) ($payload['desde'] ?? '');
+        $hasta = (string) ($payload['hasta'] ?? '');
+
+        $headerBg = '#1D4ED8';
+        $headerText = '#FFFFFF';
+        $subHeaderBg = '#DBEAFE';
+        $border = '#BFDBFE';
+        $text = '#0F172A';
+
+        $html = [];
+        $html[] = '<html><head><meta charset="utf-8" />';
+        $html[] = '<style>';
+        $html[] = "body{font-family:Calibri, Arial, sans-serif;color:{$text};}";
+        $html[] = "table{border-collapse:collapse;width:100%;}";
+        $html[] = "th,td{border:1px solid {$border};padding:6px;font-size:12px;}";
+        $html[] = ".title{background:{$headerBg};color:{$headerText};font-weight:bold;font-size:16px;text-align:left;}";
+        $html[] = ".section{background:{$subHeaderBg};font-weight:bold;}";
+        $html[] = ".right{text-align:right;}";
+        $html[] = '</style></head><body>';
+
+        $html[] = '<table>';
+        $html[] = '<tr><td class="title" colspan="4">Top productos más vendidos</td></tr>';
+        $html[] = '<tr><td class="section" colspan="4">Rango</td></tr>';
+        $html[] = '<tr><td>Desde</td><td colspan="3">' . e($desde) . '</td></tr>';
+        $html[] = '<tr><td>Hasta</td><td colspan="3">' . e($hasta) . '</td></tr>';
+        $html[] = '<tr><td class="section" colspan="4">Top 5</td></tr>';
+        $html[] = '<tr><th>Producto</th><th class="right">Cantidad</th><th class="right">Total</th></tr>';
+
+        foreach ($rows as $row) {
+            $html[] = '<tr>';
+            $html[] = '<td>' . e($row->producto_nombre ?? 'N/D') . '</td>';
+            $html[] = '<td class="right">' . (int) ($row->cantidad ?? 0) . '</td>';
+            $html[] = '<td class="right">$' . number_format((float) ($row->total ?? 0), 2) . '</td>';
+            $html[] = '</tr>';
+        }
+
+        if (empty($rows) || (is_countable($rows) && count($rows) === 0)) {
+            $html[] = '<tr><td colspan="3">No hay ventas registradas en este rango.</td></tr>';
+        }
+
+        $html[] = '</table>';
+        $html[] = '</body></html>';
+
+        return implode('', $html);
+    }
+
+    public function getInventoryByProductReport(Request $request): array
+    {
+        $bodegaId = (int) $request->query('bodega_id', 0);
+        $categoria = trim((string) $request->query('categoria', ''));
+        $q = trim((string) $request->query('q', ''));
+
+        $filters = [
+            'bodega_id' => $bodegaId,
+            'categoria' => $categoria,
+            'q' => $q,
+        ];
+
+        $rows = $this->reporting->getInventoryReport($filters, 12);
+        $chartRows = $this->reporting->getInventoryChartData($filters, 10);
+
+        $rows->getCollection()->transform(function ($row) {
+            $min = (int) ($row->stock_minimo ?? 0);
+            $stock = (int) ($row->stock_actual ?? 0);
+            $row->is_low = $stock < $min;
+            $row->is_negative = $stock < 0;
+            return $row;
+        });
+
+        $bodegas = $this->bodegas->getAll()->sortBy('nombre')->values();
+        $categorias = $this->reporting->getProductCategories();
+
+        return [
+            'rows' => $rows,
+            'chartRows' => $chartRows,
+            'bodegas' => $bodegas,
+            'categorias' => $categorias,
+            'bodegaId' => $bodegaId,
+            'categoria' => $categoria,
+            'q' => $q,
+        ];
+    }
+
+    public function exportInventoryByProductReport(Request $request): Response
+    {
+        $payload = $this->getInventoryByProductReport($request);
+
+        $bodegaId = (int) ($payload['bodegaId'] ?? 0);
+        $categoria = (string) ($payload['categoria'] ?? '');
+        $q = (string) ($payload['q'] ?? '');
+
+        $rows = $payload['rows']?->getCollection() ?? collect();
+
+        $filename = 'inventario_productos.xls';
+        if ($bodegaId) {
+            $filename = "inventario_bodega_{$bodegaId}.xls";
+        }
+
+        $html = $this->buildInventoryExcelHtml($rows, $bodegaId, $categoria, $q);
+
+        return response($html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    private function buildInventoryExcelHtml($rows, int $bodegaId, string $categoria, string $q): string
+    {
+        $headerBg = '#1D4ED8';
+        $headerText = '#FFFFFF';
+        $subHeaderBg = '#DBEAFE';
+        $border = '#BFDBFE';
+        $text = '#0F172A';
+
+        $html = [];
+        $html[] = '<html><head><meta charset="utf-8" />';
+        $html[] = '<style>';
+        $html[] = "body{font-family:Calibri, Arial, sans-serif;color:{$text};}";
+        $html[] = "table{border-collapse:collapse;width:100%;}";
+        $html[] = "th,td{border:1px solid {$border};padding:6px;font-size:12px;}";
+        $html[] = ".title{background:{$headerBg};color:{$headerText};font-weight:bold;font-size:16px;text-align:left;}";
+        $html[] = ".section{background:{$subHeaderBg};font-weight:bold;}";
+        $html[] = ".right{text-align:right;}";
+        $html[] = '</style></head><body>';
+
+        $html[] = '<table>';
+        $html[] = '<tr><td class="title" colspan="6">Inventario por producto y bodega</td></tr>';
+        $html[] = '<tr><td class="section" colspan="6">Filtros</td></tr>';
+        $html[] = '<tr><td>Bodega ID</td><td colspan="5">' . ($bodegaId ?: 'Todas') . '</td></tr>';
+        $html[] = '<tr><td>Categoria</td><td colspan="5">' . e($categoria ?: 'Todas') . '</td></tr>';
+        $html[] = '<tr><td>Busqueda</td><td colspan="5">' . e($q ?: '-') . '</td></tr>';
+
+        $html[] = '<tr><td class="section" colspan="6">Detalle</td></tr>';
+        $html[] = '<tr>';
+        $html[] = '<th>Producto</th><th>Categoria</th><th>Bodega</th><th class="right">Stock actual</th><th class="right">Stock minimo</th><th>Estado</th>';
+        $html[] = '</tr>';
+
+        foreach ($rows as $row) {
+            $min = (int) ($row->stock_minimo ?? 0);
+            $stock = (int) ($row->stock_actual ?? 0);
+            $estado = $stock < 0 ? 'NEGATIVO' : ($stock < $min ? 'BAJO' : 'OK');
+            $html[] = '<tr>';
+            $html[] = '<td>' . e($row->producto_nombre ?? 'N/D') . '</td>';
+            $html[] = '<td>' . e($row->categoria ?? 'N/D') . '</td>';
+            $html[] = '<td>' . e($row->bodega_nombre ?? 'N/D') . '</td>';
+            $html[] = '<td class="right">' . $stock . '</td>';
+            $html[] = '<td class="right">' . $min . '</td>';
+            $html[] = '<td>' . $estado . '</td>';
+            $html[] = '</tr>';
+        }
+
+        if (empty($rows) || (is_countable($rows) && count($rows) === 0)) {
+            $html[] = '<tr><td colspan="6">No hay productos para los filtros seleccionados.</td></tr>';
         }
 
         $html[] = '</table>';

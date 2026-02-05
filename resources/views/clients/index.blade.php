@@ -79,7 +79,13 @@
                 </div>
 
                 {{-- BOTÓN CREAR CLIENTE --}}
-                <div class="mt-3 flex justify-end">
+                <div class="mt-3 flex justify-end gap-2">
+                    <a
+                        href="{{ route('clients.export', request()->query()) }}"
+                        class="bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-md shadow-md text-xs flex items-center gap-2"
+                    >
+                        Exportar Excel
+                    </a>
                     <button
                         type="button"
                         onclick="openCreateModal()"

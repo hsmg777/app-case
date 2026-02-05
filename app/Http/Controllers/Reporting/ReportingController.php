@@ -51,4 +51,52 @@ class ReportingController extends Controller
     {
         return $this->reporting->exportCashClosuresDaily($request);
     }
+
+    public function monthlySalesReport(Request $request)
+    {
+        $payload = $this->reporting->getMonthlySalesReport($request);
+
+        return view('reporting.sales.monthly', $payload);
+    }
+
+    public function salesRangeReport(Request $request)
+    {
+        $payload = $this->reporting->getSalesRangeReport($request);
+
+        return view('reporting.sales.range', $payload);
+    }
+
+    public function exportMonthlySalesReport(Request $request)
+    {
+        return $this->reporting->exportMonthlySalesReport($request);
+    }
+
+    public function exportSalesRangeReport(Request $request)
+    {
+        return $this->reporting->exportSalesRangeReport($request);
+    }
+
+    public function topProductsReport(Request $request)
+    {
+        $payload = $this->reporting->getTopProductsReport($request);
+
+        return view('reporting.sales.top-products', $payload);
+    }
+
+    public function exportTopProductsReport(Request $request)
+    {
+        return $this->reporting->exportTopProductsReport($request);
+    }
+
+    public function inventoryByProductReport(Request $request)
+    {
+        $payload = $this->reporting->getInventoryByProductReport($request);
+
+        return view('reporting.inventory.products', $payload);
+    }
+
+    public function exportInventoryByProductReport(Request $request)
+    {
+        return $this->reporting->exportInventoryByProductReport($request);
+    }
 }

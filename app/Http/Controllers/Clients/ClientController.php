@@ -40,6 +40,11 @@ class ClientController extends Controller
         return view('clients.index', compact('clients', 'filters'));
     }
 
+    public function export(Request $request)
+    {
+        return $this->service->exportClients($request);
+    }
+
     public function store(Request $request)
     {
         $data = $this->validateData($request);
