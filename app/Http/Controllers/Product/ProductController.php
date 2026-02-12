@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Product;
 use App\Http\Controllers\Controller;
 use App\Services\Product\ProductService;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\JsonResponse;
 
 
 class ProductController extends Controller
@@ -67,6 +69,46 @@ class ProductController extends Controller
     public function show($id)
     {
         return response()->json($this->service->getById($id));
+    }
+
+    public function export(Request $request): BinaryFileResponse
+    {
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:255'],
+            'categoria' => ['nullable', 'string', 'max:255'],
+            'estado' => ['nullable', 'in:activos,inactivos,todos'],
+        ]);
+
+        return $this->service->exportProductsExcel($filters);
+    }
+
+    public function downloadImportTemplate(): BinaryFileResponse
+    {
+        return $this->service->downloadImportTemplate();
+    }
+
+    public function import(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx', 'max:20480'],
+        ]);
+
+        $result = $this->service->startProductsImport(
+            $data['file'],
+            auth()->id()
+        );
+
+        return response()->json([
+            'message' => 'Importacion iniciada. El archivo se esta procesando en segundo plano.',
+            'data' => $result,
+        ], 202);
+    }
+
+    public function importStatus(int $importId): JsonResponse
+    {
+        return response()->json(
+            $this->service->getImportStatus($importId)
+        );
     }
 
     public function store(Request $request)

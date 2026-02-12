@@ -2,16 +2,28 @@
 
 namespace App\Services\Product;
 
+use App\Jobs\ExportProductsExcelJob;
+use App\Jobs\ProcessProductsImportJob;
 use App\Repositories\Product\ProductRepository;
-use App\Models\Inventory\Inventory;
+use App\Repositories\Product\ProductImportRepository;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\Process\Process;
 
 class ProductService
 {
     protected ProductRepository $repo;
+    protected ProductImportRepository $importRepo;
 
-    public function __construct(ProductRepository $repo)
+    public function __construct(
+        ProductRepository $repo,
+        ProductImportRepository $importRepo
+    )
     {
         $this->repo = $repo;
+        $this->importRepo = $importRepo;
     }
 
     public function getAll(?bool $onlyActive = true)
@@ -136,5 +148,108 @@ class ProductService
     {
         $product = $this->repo->find($id);
         $this->repo->setEstado($product, $estado);
+    }
+
+    public function exportProductsExcel(array $filters = []): BinaryFileResponse
+    {
+        $estado = $filters['estado'] ?? 'activos';
+        $onlyActive = match ($estado) {
+            'inactivos' => false,
+            'todos' => null,
+            default => true,
+        };
+
+        $search = trim((string) ($filters['q'] ?? ''));
+        $categoria = trim((string) ($filters['categoria'] ?? ''));
+
+        $rows = $this->repo->getForExport(
+            onlyActive: $onlyActive,
+            search: $search !== '' ? $search : null,
+            categoria: $categoria !== '' ? $categoria : null
+        );
+
+        $timestamp = now()->format('Ymd_His');
+        $filename = "productos_{$timestamp}.xls";
+        $storagePath = "private/exports/productos/{$filename}";
+
+        Bus::dispatchSync(new ExportProductsExcelJob(
+            products: $rows->toArray(),
+            storagePath: $storagePath,
+            filters: [
+                'estado' => $estado,
+                'q' => $search,
+                'categoria' => $categoria,
+            ]
+        ));
+
+        return response()->download(
+            Storage::disk('local')->path($storagePath),
+            $filename,
+            [
+                'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            ]
+        )->deleteFileAfterSend(true);
+    }
+
+    public function downloadImportTemplate(): BinaryFileResponse
+    {
+        $filename = 'plantilla_productos_importacion.xlsx';
+        $storagePath = "private/templates/{$filename}";
+        $absolutePath = Storage::disk('local')->path($storagePath);
+
+        $script = base_path('scripts/xlsx/products-template.cjs');
+        $process = new Process(['node', $script, $absolutePath]);
+        $process->setTimeout(120);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            throw new \RuntimeException(
+                $process->getErrorOutput() ?: 'No se pudo generar la plantilla de importacion.'
+            );
+        }
+
+        return response()->download(
+            $absolutePath,
+            $filename,
+            [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ]
+        );
+    }
+
+    public function startProductsImport(UploadedFile $file, ?int $userId = null): array
+    {
+        $storedPath = $file->store('private/imports/products', 'local');
+
+        $import = $this->importRepo->create([
+            'user_id' => $userId,
+            'original_filename' => $file->getClientOriginalName(),
+            'file_path' => $storedPath,
+            'status' => 'pending',
+        ]);
+
+        ProcessProductsImportJob::dispatch($import->id);
+
+        return [
+            'import_id' => $import->id,
+            'status' => $import->status,
+        ];
+    }
+
+    public function getImportStatus(int $importId): array
+    {
+        $import = $this->importRepo->findOrFail($importId);
+
+        return [
+            'id' => $import->id,
+            'status' => $import->status,
+            'total_rows' => (int) $import->total_rows,
+            'processed_rows' => (int) $import->processed_rows,
+            'created_count' => (int) $import->created_count,
+            'failed_count' => (int) $import->failed_count,
+            'error_log' => $import->error_log,
+            'started_at' => $import->started_at?->toDateTimeString(),
+            'finished_at' => $import->finished_at?->toDateTimeString(),
+        ];
     }
 }

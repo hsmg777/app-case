@@ -133,7 +133,7 @@
                                 Adjuntos:
                                 <b>RIDE.pdf</b> y <b>FACTURA.xml</b>.
                                 <br>
-                                Si necesitas ayuda, responde a este correo o contáctanos por nuestros canales oficiales.
+                                Si necesitas ayuda, contáctanos por nuestros canales oficiales.
                             </div>
 
                             {{-- Divider --}}

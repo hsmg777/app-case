@@ -66,4 +66,46 @@ class ProductRepository
         $product->estado = $estado;
         $product->save();
     }
+
+    public function getForExport(
+        ?bool $onlyActive = true,
+        ?string $search = null,
+        ?string $categoria = null
+    ) {
+        $query = Product::query()
+            ->select(['id', 'nombre', 'codigo_interno', 'codigo_barras', 'categoria', 'estado'])
+            ->orderBy('nombre', 'asc');
+
+        if ($onlyActive !== null) {
+            $query->where('estado', $onlyActive);
+        }
+
+        if ($categoria !== null && $categoria !== '') {
+            $query->where('categoria', $categoria);
+        }
+
+        if ($search !== null && $search !== '') {
+            $query->where(function ($subQuery) use ($search) {
+                $subQuery->where('nombre', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_interno', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_barras', 'like', '%' . $search . '%');
+            });
+        }
+
+        return $query->get();
+    }
+
+    public function existsByCodigoInterno(string $codigoInterno): bool
+    {
+        return Product::query()
+            ->where('codigo_interno', $codigoInterno)
+            ->exists();
+    }
+
+    public function existsByCodigoBarras(string $codigoBarras): bool
+    {
+        return Product::query()
+            ->where('codigo_barras', $codigoBarras)
+            ->exists();
+    }
 }

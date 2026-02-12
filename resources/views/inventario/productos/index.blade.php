@@ -16,64 +16,109 @@
         </div>
     </x-slot>
 
-    <div class="py-10">
-        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+    <div class="py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5">
+            <section class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-5">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div>
+                        <p class="text-sm text-slate-500">Gestiona tu catálogo e importaciones</p>
+                        <div class="mt-2 inline-flex items-center gap-2 text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-full px-3 py-1">
+                            <span>Productos visibles</span>
+                            <span id="products-count" class="bg-white text-blue-900 border border-blue-200 rounded-full px-2 py-0.5">0</span>
+                        </div>
+                    </div>
 
-            <div class="flex justify-end mb-4">
-                <button
-                    id="btn-open-create"
-                    type="button"
-                    class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-md shadow"
-                >
-                    + Nuevo Producto
-                </button>
-            </div>
+                    <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                        <div class="grid grid-cols-2 sm:flex gap-2">
+                            <button
+                                id="btn-download-template"
+                                type="button"
+                                class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded-lg shadow-sm font-medium"
+                            >
+                                Plantilla XLSX
+                            </button>
+                            <button
+                                id="btn-import-products"
+                                type="button"
+                                class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg shadow-sm font-medium"
+                            >
+                                Carga Masiva
+                            </button>
+                            <button
+                                id="btn-export-excel"
+                                type="button"
+                                class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg shadow-sm font-medium"
+                            >
+                                Exportar Excel
+                            </button>
+                        </div>
 
-            <div class="flex flex-col md:flex-row md:items-center md:space-x-4 mb-4">
-                <input
-                    id="buscar-input"
-                    type="text"
-                    placeholder="Buscar por nombre o código..."
-                    class="border px-3 py-2 rounded w-full md:w-1/3"
-                    oninput="aplicarFiltros()"
-                >
+                        <button
+                            id="btn-open-create"
+                            type="button"
+                            class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-lg shadow-sm font-semibold whitespace-nowrap"
+                        >
+                            + Nuevo Producto
+                        </button>
+                        <input id="input-import-products" type="file" accept=".xlsx" class="hidden" />
+                    </div>
+                </div>
+            </section>
 
-                <select
-                    id="categoria-select"
-                    class="border px-3 py-2 rounded w-full md:w-1/4 mt-3 md:mt-0"
-                    onchange="aplicarFiltros()"
-                >
-                    <option value="">Todas las categorías</option>
-                </select>
+            <section class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-5">
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+                    <div class="md:col-span-5">
+                        <input
+                            id="buscar-input"
+                            type="text"
+                            placeholder="Buscar por nombre o código..."
+                            class="border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-3 py-2.5 rounded-lg w-full"
+                            oninput="aplicarFiltros()"
+                        >
+                    </div>
 
-                <select
-                  id="estado-select"
-                  class="border px-3 py-2 rounded w-full md:w-1/4 mt-3 md:mt-0"
-                >
-                    <option value="activos" selected>Activos</option>
-                    <option value="inactivos">Inactivos</option>
-                    <option value="todos">Todos</option>
-                </select>
-            </div>
+                    <div class="md:col-span-4">
+                        <select
+                            id="categoria-select"
+                            class="border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-3 py-2.5 rounded-lg w-full"
+                            onchange="aplicarFiltros()"
+                        >
+                            <option value="">Todas las categorías</option>
+                        </select>
+                    </div>
 
-            <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
-                <table class="min-w-full">
-                    <thead class="bg-blue-50">
-                        <tr>
-                            <th class="px-4 py-2 text-left text-sm font-semibold text-blue-900">Nombre</th>
-                            <th class="px-4 py-2 text-left text-sm font-semibold text-blue-900">Código interno</th>
-                            <th class="px-4 py-2 text-left text-sm font-semibold text-blue-900">Categoría</th>
-                            <th class="px-4 py-2 text-left text-sm font-semibold text-blue-900">Stock mínimo</th>
-                            <th class="px-4 py-2 text-center text-sm font-semibold text-blue-900">Acciones</th>
-                        </tr>
-                    </thead>
+                    <div class="md:col-span-3">
+                        <select
+                          id="estado-select"
+                          class="border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-3 py-2.5 rounded-lg w-full"
+                        >
+                            <option value="activos" selected>Activos</option>
+                            <option value="inactivos">Inactivos</option>
+                            <option value="todos">Todos</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
 
-                    <tbody id="tabla-productos"></tbody>
-                </table>
-            </div>
+            <section class="bg-white shadow-sm rounded-xl overflow-hidden border border-slate-200">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Nombre</th>
+                                <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Código interno</th>
+                                <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Categoría</th>
+                                <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Stock mínimo</th>
+                                <th class="px-5 py-3 text-center text-sm font-semibold text-slate-700">Acciones</th>
+                            </tr>
+                        </thead>
 
-            <div id="paginacion" class="flex justify-center mt-4 space-x-2"></div>
+                        <tbody id="tabla-productos"></tbody>
+                    </table>
+                </div>
+            </section>
 
+            <div id="paginacion" class="flex flex-wrap justify-center gap-2"></div>
         </div>
     </div>
 
@@ -161,6 +206,41 @@
           });
         }
 
+        const exportBtn = $("btn-export-excel");
+        if (exportBtn) {
+          exportBtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            exportarProductosExcel();
+          });
+        }
+
+        const templateBtn = $("btn-download-template");
+        if (templateBtn) {
+          templateBtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            window.location.href = "{{ route('productos.import.template') }}";
+          });
+        }
+
+        const importBtn = $("btn-import-products");
+        const importInput = $("input-import-products");
+        if (importBtn && importInput) {
+          importBtn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            importInput.click();
+          });
+
+          importInput.addEventListener("change", async (ev) => {
+            const file = ev.target.files?.[0];
+            if (!file) return;
+            try {
+              await subirExcelProductos(file);
+            } finally {
+              importInput.value = "";
+            }
+          });
+        }
+
         $("form-create-product")?.addEventListener("submit", handleCreateProduct);
         $("form-edit")?.addEventListener("submit", handleEditProduct);
 
@@ -199,30 +279,45 @@
       function renderTabla(lista) {
         let rows = "";
 
+        if (!lista.length) {
+          $("tabla-productos").innerHTML = `
+            <tr>
+              <td colspan="5" class="px-5 py-8 text-center text-sm text-slate-500">
+                No hay productos para los filtros seleccionados.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
         lista.forEach((p) => {
           const activo = (p.estado === true || p.estado === 1 || p.estado === "1");
           const accionText = activo ? "Desactivar" : "Activar";
-          const accionClass = activo ? "text-rose-600" : "text-emerald-600";
+          const accionClass = activo
+            ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+            : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
           const confirmText = activo
             ? "¿Desactivar este producto? No se borrará el historial."
             : "¿Activar este producto?";
 
           rows += `
-            <tr class="border-b ${activo ? "" : "bg-gray-50"}">
-              <td class="px-4 py-2">${p.nombre ?? "-"}</td>
-              <td class="px-4 py-2">${p.codigo_interno ?? "-"}</td>
-              <td class="px-4 py-2">${p.categoria ?? "-"}</td>
-              <td class="px-4 py-2">${p.stock_minimo ?? 0}</td>
-              <td class="px-4 py-2 text-center">
-                <button onclick="openEditModal(${p.id})" class="text-blue-600 hover:underline mr-3">
+            <tr class="border-b border-slate-100 ${activo ? "" : "bg-slate-50/70"}">
+              <td class="px-5 py-3 text-slate-800 font-medium">${p.nombre ?? "-"}</td>
+              <td class="px-5 py-3 text-slate-700">${p.codigo_interno ?? "-"}</td>
+              <td class="px-5 py-3 text-slate-700">${p.categoria ?? "-"}</td>
+              <td class="px-5 py-3 text-slate-700">${p.stock_minimo ?? 0}</td>
+              <td class="px-5 py-3">
+                <div class="flex items-center justify-center gap-2">
+                <button onclick="openEditModal(${p.id})" class="px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100">
                   Editar
                 </button>
                 <button
                   onclick="cambiarEstadoProducto(${p.id}, ${activo ? "false" : "true"}, '${confirmText.replace(/'/g, "\\'")}')"
-                  class="${accionClass} font-semibold hover:underline"
+                  class="px-3 py-1.5 rounded-md text-sm font-semibold transition ${accionClass}"
                 >
                   ${accionText}
                 </button>
+                </div>
               </td>
             </tr>`;
         });
@@ -253,7 +348,7 @@
 
         html += `
           <button
-            class="px-3 py-1 border rounded ${PAGINA_ACTUAL === 1 ? "opacity-50 cursor-not-allowed" : ""}"
+            class="px-3 py-1.5 border border-slate-300 rounded-md bg-white text-slate-700 ${PAGINA_ACTUAL === 1 ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}"
             onclick="cambiarPagina(${PAGINA_ACTUAL - 1})"
             ${PAGINA_ACTUAL === 1 ? "disabled" : ""}
           >Anterior</button>
@@ -262,7 +357,11 @@
         for (let i = 1; i <= totalPaginas; i++) {
           html += `
             <button
-              class="px-3 py-1 border rounded ${i === PAGINA_ACTUAL ? "bg-blue-600 text-white" : ""}"
+              class="px-3 py-1.5 border rounded-md ${
+                i === PAGINA_ACTUAL
+                  ? "bg-blue-700 border-blue-700 text-white"
+                  : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+              }"
               onclick="cambiarPagina(${i})"
             >${i}</button>
           `;
@@ -270,7 +369,7 @@
 
         html += `
           <button
-            class="px-3 py-1 border rounded ${PAGINA_ACTUAL === totalPaginas ? "opacity-50 cursor-not-allowed" : ""}"
+            class="px-3 py-1.5 border border-slate-300 rounded-md bg-white text-slate-700 ${PAGINA_ACTUAL === totalPaginas ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}"
             onclick="cambiarPagina(${PAGINA_ACTUAL + 1})"
             ${PAGINA_ACTUAL === totalPaginas ? "disabled" : ""}
           >Siguiente</button>
@@ -330,6 +429,8 @@
         }
 
         PRODUCTOS_FILTRADOS = filtrados;
+        const countEl = $("products-count");
+        if (countEl) countEl.textContent = String(filtrados.length);
         PAGINA_ACTUAL = 1;
         renderPagina();
       }
@@ -554,6 +655,94 @@
         }
       }
 
+      function exportarProductosExcel() {
+        const estado = $("estado-select")?.value || "activos";
+        const categoria = ($("categoria-select")?.value || "").trim();
+        const q = ($("buscar-input")?.value || "").trim();
+
+        const params = new URLSearchParams();
+        params.set("estado", estado);
+        if (categoria !== "") params.set("categoria", categoria);
+        if (q !== "") params.set("q", q);
+
+        const url = `{{ route('productos.export') }}?${params.toString()}`;
+        window.location.href = url;
+      }
+
+      async function subirExcelProductos(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const res = await swalLoading(
+            fetch("{{ route('productos.import') }}", {
+              method: "POST",
+              headers: { "X-CSRF-TOKEN": CSRF_TOKEN },
+              body: formData,
+            }),
+            "Subiendo archivo y encolando importacion..."
+          );
+
+          const payload = await readJsonSafe(res);
+          if (!res.ok) {
+            throw new Error(payload?.message || "No se pudo iniciar la importacion");
+          }
+
+          const importId = payload?.data?.import_id;
+          await swalSuccess("Importacion iniciada", `Proceso #${importId}`);
+
+          if (importId) {
+            await esperarImportacion(importId);
+            cargarProductos();
+          }
+        } catch (err) {
+          console.error(err);
+          swalError("Error", err.message || "No se pudo procesar el archivo");
+        }
+      }
+
+      async function esperarImportacion(importId) {
+        const maxIntentos = 180;
+        let intentos = 0;
+
+        while (intentos < maxIntentos) {
+          intentos++;
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          const res = await fetch(`/productos/import/${importId}/status`, {
+            headers: { "Accept": "application/json" },
+          });
+
+          if (!res.ok) continue;
+          const st = await res.json();
+
+          if (st.status === "completed") {
+            const resumen = [
+              `Filas procesadas: ${st.processed_rows || 0}`,
+              `Productos creados: ${st.created_count || 0}`,
+              `Filas con error: ${st.failed_count || 0}`,
+            ].join("\n");
+
+            const errorPreview = st.error_log
+              ? `\n\nErrores (resumen):\n${String(st.error_log).split("\n").slice(0, 10).join("\n")}`
+              : "";
+
+            await Swal.fire({
+              icon: "success",
+              title: "Importacion finalizada",
+              text: resumen + errorPreview,
+            });
+            return;
+          }
+
+          if (st.status === "failed") {
+            throw new Error(st.error_log || "La importacion fallo.");
+          }
+        }
+
+        throw new Error("La importacion sigue en proceso. Revisa en unos segundos.");
+      }
+
       window.openCreateModal = openCreateModal;
       window.closeCreateModal = closeCreateModal;
 
@@ -564,6 +753,8 @@
       window.closeEditModal = closeEditModal;
 
       window.cambiarEstadoProducto = cambiarEstadoProducto;
+      window.exportarProductosExcel = exportarProductosExcel;
+      window.subirExcelProductos = subirExcelProductos;
     })();
     </script>
 </x-app-layout>
