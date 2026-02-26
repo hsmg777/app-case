@@ -83,6 +83,26 @@
                         </p>
                     </div>
                 </a>
+
+                <a href="{{ route('inventario.transferencias') }}" class="group bg-white rounded-xl p-6 shadow-sm border border-blue-100
+                        hover:border-blue-400 hover:shadow-lg transition">
+                    <div class="flex flex-col items-center text-center">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-12 w-12 text-blue-700 group-hover:text-blue-800 transition" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                d="M7 7h11M7 7l3-3M7 7l3 3M17 17H6m11 0l-3-3m3 3l-3 3" />
+                        </svg>
+
+                        <h3 class="mt-4 text-lg font-semibold text-blue-900">
+                            Transferencia entre bodegas
+                        </h3>
+                        <p class="text-sm text-blue-700/70 mt-1">
+                            Mueve cantidades de productos entre bodegas
+                        </p>
+                    </div>
+                </a>
             </div>
         </div>
     </div>

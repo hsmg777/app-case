@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
+use App\Models\Store\Bodega;
 use App\Services\Inventory\InventoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class InventoryController extends Controller
 {
@@ -30,6 +32,13 @@ class InventoryController extends Controller
     public function viewStock()
     {
         return view('inventario.stock.stock');
+    }
+
+    public function viewTransfers()
+    {
+        $bodegas = Bodega::orderBy('nombre')->get();
+
+        return view('inventario.transferencias.index', compact('bodegas'));
     }
 
     /*
@@ -186,6 +195,33 @@ class InventoryController extends Controller
                 $data['percha_id'] ?? null
             )
         );
+    }
+
+    public function transferBetweenWarehouses(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'bodega_origen_id'  => 'required|exists:bodegas,id|different:bodega_destino_id',
+            'bodega_destino_id' => 'required|exists:bodegas,id',
+            'observaciones'     => 'nullable|string|max:500',
+            'items'             => 'required|array|min:1',
+            'items.*.producto_id' => 'required|exists:products,id',
+            'items.*.cantidad'    => 'required|integer|min:1',
+            'items.*.percha_destino_id' => 'nullable|exists:perchas,id',
+        ]);
+        try {
+            $result = $this->service->transferBetweenWarehouses(
+                (int) $data['bodega_origen_id'],
+                (int) $data['bodega_destino_id'],
+                $data['items'],
+                $data['observaciones'] ?? null
+            );
+
+            return response()->json($result);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
 

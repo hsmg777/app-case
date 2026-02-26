@@ -3,9 +3,13 @@
 namespace App\Services\Inventory;
 
 use App\Models\Inventory\Inventory;
+use App\Models\Product\Product;
+use App\Models\Store\Bodega;
+use App\Models\Store\Percha;
 use App\Repositories\Inventory\InventoryRepository;
 use App\Repositories\Inventory\InventoryAdjustmentRepository;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Exception;
 
@@ -391,6 +395,158 @@ class InventoryService
     }
 
 
+
+    public function transferBetweenWarehouses(
+        int $bodegaOrigenId,
+        int $bodegaDestinoId,
+        array $items,
+        ?string $observaciones = null
+    ): array {
+        if ($bodegaOrigenId === $bodegaDestinoId) {
+            throw new InvalidArgumentException('La bodega origen y destino deben ser diferentes.');
+        }
+
+        if (empty($items)) {
+            throw new InvalidArgumentException('Debes enviar al menos un producto para transferir.');
+        }
+
+        /** @var Bodega $bodegaOrigen */
+        $bodegaOrigen = Bodega::findOrFail($bodegaOrigenId);
+        /** @var Bodega $bodegaDestino */
+        $bodegaDestino = Bodega::findOrFail($bodegaDestinoId);
+
+        $itemsConsolidados = [];
+        foreach ($items as $item) {
+            $productoId = (int) ($item['producto_id'] ?? 0);
+            $cantidad = (int) ($item['cantidad'] ?? 0);
+            $perchaDestinoId = isset($item['percha_destino_id']) && $item['percha_destino_id'] !== ''
+                ? (int) $item['percha_destino_id']
+                : null;
+
+            if ($productoId <= 0 || $cantidad <= 0) {
+                throw new InvalidArgumentException('Los items de transferencia son invalidos.');
+            }
+
+            if (!is_null($perchaDestinoId)) {
+                $perchaDestinoValida = Percha::where('id', $perchaDestinoId)
+                    ->where('bodega_id', $bodegaDestinoId)
+                    ->exists();
+                if (!$perchaDestinoValida) {
+                    throw new InvalidArgumentException('La percha destino no pertenece a la bodega destino seleccionada.');
+                }
+            }
+
+            $key = $productoId . ':' . ($perchaDestinoId ?? 'null');
+            if (!isset($itemsConsolidados[$key])) {
+                $itemsConsolidados[$key] = [
+                    'producto_id' => $productoId,
+                    'percha_destino_id' => $perchaDestinoId,
+                    'cantidad' => 0,
+                ];
+            }
+            $itemsConsolidados[$key]['cantidad'] += $cantidad;
+        }
+
+        $detalleTransferencia = [];
+        $motivoBase = "Transferencia {$bodegaOrigen->nombre} -> {$bodegaDestino->nombre}";
+        if ($observaciones) {
+            $motivoBase .= " | {$observaciones}";
+        }
+
+        DB::transaction(function () use (
+            $itemsConsolidados,
+            $bodegaOrigenId,
+            $bodegaDestinoId,
+            $motivoBase,
+            &$detalleTransferencia
+        ) {
+            foreach ($itemsConsolidados as $itemConsolidado) {
+                $productoId = (int) $itemConsolidado['producto_id'];
+                $cantidad = (int) $itemConsolidado['cantidad'];
+                $perchaDestinoId = $itemConsolidado['percha_destino_id'];
+
+                /** @var Product $producto */
+                $producto = Product::findOrFail($productoId);
+
+                $inventariosOrigen = Inventory::where('producto_id', $productoId)
+                    ->where('bodega_id', $bodegaOrigenId)
+                    ->lockForUpdate()
+                    ->get();
+
+                $stockDisponible = (int) $inventariosOrigen
+                    ->where('stock_actual', '>', 0)
+                    ->sum('stock_actual');
+
+                if ($stockDisponible < $cantidad) {
+                    throw new InvalidArgumentException(
+                        "Stock insuficiente para {$producto->nombre} en la bodega origen. Disponible: {$stockDisponible}."
+                    );
+                }
+
+                $faltante = $cantidad;
+                foreach ($inventariosOrigen->where('stock_actual', '>', 0)->sortBy('id') as $invOrigen) {
+                    if ($faltante <= 0) {
+                        break;
+                    }
+
+                    $descontar = min((int) $invOrigen->stock_actual, $faltante);
+                    $stockInicial = (int) $invOrigen->stock_actual;
+
+                    $this->repository->decreaseStock($invOrigen, $descontar);
+
+                    $this->adjustmentRepository->create([
+                        'usuario_id' => Auth::id(),
+                        'bodega_id' => $invOrigen->bodega_id,
+                        'percha_id' => $invOrigen->percha_id,
+                        'producto_id' => $invOrigen->producto_id,
+                        'stock_inicial' => $stockInicial,
+                        'stock_final' => $invOrigen->stock_actual,
+                        'diferencia' => -$descontar,
+                        'tipo' => 'negativo',
+                        'motivo' => $motivoBase . ' (Salida)',
+                    ]);
+
+                    $faltante -= $descontar;
+                }
+
+                if ($faltante > 0) {
+                    throw new InvalidArgumentException(
+                        "No se pudo completar la salida de {$producto->nombre} en la bodega origen."
+                    );
+                }
+
+                $invDestino = $this->getOrCreateLocation($productoId, $bodegaDestinoId, $perchaDestinoId);
+                $stockInicialDestino = (int) $invDestino->stock_actual;
+                $this->repository->increaseStock($invDestino, $cantidad);
+
+                $this->adjustmentRepository->create([
+                    'usuario_id' => Auth::id(),
+                    'bodega_id' => $invDestino->bodega_id,
+                    'percha_id' => $invDestino->percha_id,
+                    'producto_id' => $invDestino->producto_id,
+                    'stock_inicial' => $stockInicialDestino,
+                    'stock_final' => $invDestino->stock_actual,
+                    'diferencia' => $cantidad,
+                    'tipo' => 'positivo',
+                    'motivo' => $motivoBase . ' (Entrada)',
+                ]);
+
+                $detalleTransferencia[] = [
+                    'producto_id' => $productoId,
+                    'producto' => $producto->nombre,
+                    'cantidad' => $cantidad,
+                    'percha_destino_id' => $perchaDestinoId,
+                ];
+            }
+        });
+
+        return [
+            'message' => 'Transferencia registrada correctamente.',
+            'bodega_origen_id' => $bodegaOrigenId,
+            'bodega_destino_id' => $bodegaDestinoId,
+            'items' => array_values($detalleTransferencia),
+        ];
+    }
 
     /**
      * Historial de ajustes de stock por producto/bodega/percha.

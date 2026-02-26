@@ -37,17 +37,25 @@
                     </div>
                     <div>
                         <div class="text-sm text-blue-900 font-semibold mb-2">Filtros</div>
-                        <form method="GET" action="{{ route('reporteria.invoices.statuses') }}" class="flex flex-col sm:flex-row gap-2">
-                            <select name="estado" class="border border-blue-100 rounded px-2 py-1 text-xs">
-                                <option value="" {{ $estado === '' ? 'selected' : '' }}>Todos</option>
-                                <option value="AUTORIZADO" {{ $estado === 'AUTORIZADO' ? 'selected' : '' }}>AUTORIZADO</option>
-                                <option value="EN_PROCESO" {{ $estado === 'EN_PROCESO' ? 'selected' : '' }}>EN_PROCESO</option>
-                                <option value="RECHAZADO" {{ $estado === 'RECHAZADO' ? 'selected' : '' }}>RECHAZADO</option>
-                                <option value="PENDIENTE_REVISION" {{ $estado === 'PENDIENTE_REVISION' ? 'selected' : '' }}>PENDIENTE_REVISION</option>
-                            </select>
-                            <input name="q" value="{{ $q ?? '' }}" placeholder="Buscar venta, factura o clave"
-                                class="border border-blue-100 rounded px-2 py-1 text-xs flex-1" />
-                            <button type="submit" class="text-xs px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">Aplicar</button>
+                        <form method="GET" action="{{ route('reporteria.invoices.statuses') }}" class="space-y-2">
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <select name="estado" class="border border-blue-100 rounded px-2 py-1 text-xs">
+                                    <option value="" {{ $estado === '' ? 'selected' : '' }}>Todos</option>
+                                    <option value="AUTORIZADO" {{ $estado === 'AUTORIZADO' ? 'selected' : '' }}>AUTORIZADO</option>
+                                    <option value="EN_PROCESO" {{ $estado === 'EN_PROCESO' ? 'selected' : '' }}>EN_PROCESO</option>
+                                    <option value="RECHAZADO" {{ $estado === 'RECHAZADO' ? 'selected' : '' }}>RECHAZADO</option>
+                                    <option value="PENDIENTE_REVISION" {{ $estado === 'PENDIENTE_REVISION' ? 'selected' : '' }}>PENDIENTE_REVISION</option>
+                                </select>
+                                <input name="q" value="{{ $q ?? '' }}" placeholder="Buscar venta, factura o clave"
+                                    class="border border-blue-100 rounded px-2 py-1 text-xs flex-1" />
+                                <button type="submit" class="text-xs px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">Aplicar</button>
+                            </div>
+                            <div class="flex justify-end">
+                                <a href="{{ route('reporteria.invoices.statuses.xml-zip', ['estado' => $estado, 'q' => $q]) }}"
+                                    class="inline-block text-xs px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700">
+                                    Descargar XML (ZIP)
+                                </a>
+                            </div>
                         </form>
                     </div>
                 </div>

@@ -31,6 +31,10 @@ Route::middleware(['auth', 'role:supervisor|admin'])
         Route::get('/historial', [InventoryController::class, 'viewHistory'])
             ->name('inventario.historial');
 
+        // Vista transferencia entre bodegas
+        Route::get('/transferencias', [InventoryController::class, 'viewTransfers'])
+            ->name('inventario.transferencias');
+
         /*
         |--------------------------------------------------------------------------
         | RUTAS FUNCIONALES (JSON: CRUD + STOCK)
@@ -70,4 +74,7 @@ Route::middleware(['auth', 'role:supervisor|admin'])
 
         // Data del historial
         Route::get('/historial/data', [InventoryController::class, 'adjustmentsHistory']);
+
+        // Transferencia entre bodegas
+        Route::post('/transferencias', [InventoryController::class, 'transferBetweenWarehouses']);
     });
