@@ -21,23 +21,11 @@
                     <div>
                         <div class="text-lg font-semibold text-blue-900">Datos del emisor</div>
                         <p class="text-sm text-slate-600">
-                            La contraseña del certificado <b>NO</b> se guarda en base de datos.
-                            Esta encriptada en variables de entorno para mayor seguridad.
+                            La contrasena del certificado se guarda en base de datos.
+                            En variables de entorno solo se define el directorio base: <code>SRI_CERT_DIR</code>.
                         </p>
                     </div>
 
-                    <div class="text-right">
-                        <div class="text-xs text-slate-500">Estado clave</div>
-                        @if($envHasPassword)
-                            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                OK: configurada
-                            </span>
-                        @else
-                            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-                                Falta: no configurada
-                            </span>
-                        @endif
-                    </div>
                 </div>
 
                 @php
@@ -192,7 +180,7 @@
                             <input type="password" name="certificado_password"
                                 placeholder="Ingresa la contraseña del archivo .p12"
                                 class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500" />
-                            @if(!empty($config->certificado_password) || $envHasPassword)
+                            @if(!empty($config->certificado_password))
                                 <p class="text-xs text-blue-600 mt-1">
                                     * Ya existe una contraseña guardada. Déjalo en blanco si no deseas cambiarla.
                                 </p>
@@ -236,7 +224,7 @@
         @if ($errors->any())
             let errorHtml = '<ul style="text-align:left; padding-left: 20px;">';
             @foreach ($errors->all() as $error)
-                errorHtml += '<li style="margin-bottom: 8px;">{{ $error }}</li>';
+                errorHtml += '<li style="margin-bottom: 8px;">' + @json($error) + '</li>';
             @endforeach
             errorHtml += '</ul>';
 

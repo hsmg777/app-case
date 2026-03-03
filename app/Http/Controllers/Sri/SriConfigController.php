@@ -18,7 +18,6 @@ class SriConfigController extends Controller
 
         return view('sri.config', [
             'config' => $config,
-            'envHasPassword' => (bool) env('SRI_CERT_PASSWORD'),
         ]);
     }
 
@@ -30,11 +29,11 @@ class SriConfigController extends Controller
             $certFile = $request->file('certificado_p12');
             unset($data['certificado_p12']);
 
-            $config = $this->service->save($data, $certFile);
+            $this->service->save($data, $certFile);
 
             return redirect()
                 ->route('sri.config.edit')
-                ->with('success', '✅ Configuración SRI guardada correctamente. El certificado ha sido convertido y validado.')
+                ->with('success', 'Configuracion SRI guardada correctamente. El certificado fue convertido y validado.')
                 ->with('clear_form', true);
         } catch (\Exception $e) {
             return redirect()
@@ -53,5 +52,4 @@ class SriConfigController extends Controller
             return back()->withErrors(['sri' => $e->getMessage()]);
         }
     }
-
 }

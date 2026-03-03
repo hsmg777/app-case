@@ -1047,7 +1047,7 @@ class SriInvoiceService
                 ]);
             }
 
-            // Ruta del certificado: BD > Env (Fallback)
+            // Ruta del certificado: solo BD
             $cfg = $this->configService->get();
 
             \Illuminate\Support\Facades\Log::info('SRI: Debug config', [
@@ -1056,18 +1056,11 @@ class SriInvoiceService
                 'cert_absolute_path' => $cfg?->cert_absolute_path ?? 'NULL',
             ]);
 
-            $certPath = (string) ($cfg?->cert_absolute_path ?? $this->resolveCertPath((string) env('SRI_CERT_PATH')));
+            $certPath = (string) ($cfg?->cert_absolute_path ?? '');
+            \Illuminate\Support\Facades\Log::info("SRI: Usando certificado de DB: " . ($certPath !== '' ? $certPath : 'NULL'));
 
-            if (!$certPath || !file_exists($certPath)) {
-                \Illuminate\Support\Facades\Log::warning("SRI: Certificado no encontrado en DB path: " . ($certPath ?? 'NULL') . ". Intentando fallback ENV.");
-                // Si no existe, intentamos fallback puro por si acaso (aunque resolveCertPath ya lo hace)
-                $certPath = $this->resolveCertPath((string) env('SRI_CERT_PATH'));
-            } else {
-                \Illuminate\Support\Facades\Log::info("SRI: Usando certificado de DB: $certPath");
-            }
-
-            // Password: DB > Env
-            $certPass = (string) ($cfg?->cert_password ?? env('SRI_CERT_PASSWORD', ''));
+            // Password: solo BD
+            $certPass = (string) ($cfg?->cert_password ?? '');
 
             if ($certPass === '') {
                 throw ValidationException::withMessages([
@@ -1114,30 +1107,6 @@ class SriInvoiceService
 
             return $invoice->fresh();
         });
-    }
-
-    private function resolveCertPath(string $envPath): string
-    {
-        if ($envPath === '')
-            return storage_path('app/sri/certs/certificado.p12');
-
-        if (str_starts_with($envPath, '/')) {
-            return $envPath;
-        }
-
-        if (is_file(base_path($envPath))) {
-            return base_path($envPath);
-        }
-
-        if (is_file(storage_path($envPath))) {
-            return storage_path($envPath);
-        }
-
-        if (is_file(storage_path('app/' . ltrim($envPath, '/')))) {
-            return storage_path('app/' . ltrim($envPath, '/'));
-        }
-
-        return base_path($envPath);
     }
 
     private function signXadesBesSha256(string $xmlString, string $p12Path, string $p12Password): string

@@ -36,15 +36,9 @@ class SriConfig extends Model
         'obligado_contabilidad' => 'boolean',
     ];
 
-    /**
-     *  P12 .env
-     */
     public function getCertPasswordAttribute(): ?string
     {
-        if (!empty($this->certificado_password)) {
-            return $this->certificado_password;
-        }
-        return env('SRI_CERT_PASSWORD');
+        return !empty($this->certificado_password) ? $this->certificado_password : null;
     }
 
     /**

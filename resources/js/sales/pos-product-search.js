@@ -4,6 +4,7 @@ import { addOrIncrementProduct } from './pos-cart';
 
 let ALL_PRODUCTS = [];
 const POS_FETCH_LIMIT = 200;
+const POS_SEARCH_LIMIT = 1000;
 let lastFetchSeq = 0;
 
 function normalizeIvaPct(v) {
@@ -82,7 +83,8 @@ async function loadProducts(searchTerm = '') {
   const separator = url.includes('?') ? '&' : '?';
   const params = new URLSearchParams();
   params.set('bodega_id', String(bodegaId));
-  params.set('limit', String(POS_FETCH_LIMIT));
+  const limit = searchTerm ? POS_SEARCH_LIMIT : POS_FETCH_LIMIT;
+  params.set('limit', String(limit));
   if (searchTerm) params.set('q', searchTerm);
   url = `${url}${separator}${params.toString()}`;
 

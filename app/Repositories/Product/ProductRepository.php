@@ -151,14 +151,29 @@ class ProductRepository
         }
 
         if ($search !== null && $search !== '') {
+            $searchExact = $search;
+            $searchPrefix = $search . '%';
+            $searchLike = '%' . $search . '%';
+
             $query->where(function (Builder $subQuery) use ($search) {
                 $subQuery->where('nombre', 'like', '%' . $search . '%')
                     ->orWhere('codigo_interno', 'like', '%' . $search . '%')
                     ->orWhere('codigo_barras', 'like', '%' . $search . '%');
             });
+
+            // Prioriza codigo exacto, luego prefijo de codigo y finalmente nombre.
+            $query->orderByRaw(
+                "CASE
+                    WHEN codigo_interno = ? OR codigo_barras = ? THEN 0
+                    WHEN codigo_interno LIKE ? OR codigo_barras LIKE ? THEN 1
+                    WHEN nombre LIKE ? THEN 2
+                    ELSE 3
+                END",
+                [$searchExact, $searchExact, $searchPrefix, $searchPrefix, $searchLike]
+            );
         }
 
-        return $query->limit(max(1, min($limit, 500)))->get();
+        return $query->limit(max(1, min($limit, 2000)))->get();
     }
 
     public function paginateForTable(
