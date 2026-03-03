@@ -170,10 +170,12 @@
         try { return t ? JSON.parse(t) : null; } catch { return t || null; }
       }
 
-      let PRODUCTOS = [];
-      let PRODUCTOS_FILTRADOS = [];
+      let PRODUCTOS_PAGINA = [];
       let PAGINA_ACTUAL = 1;
       const ITEMS_POR_PAGINA = 10;
+      let TOTAL_PAGINAS = 1;
+      let TOTAL_REGISTROS = 0;
+      let filtrosDebounceTimer = null;
 
       function openCreateModal() {
         const el = $("modal-create");
@@ -220,10 +222,11 @@
           cargarProductos();
           bindBarcodeFocusFlow();
         $("estado-select")?.addEventListener("change", () => {
-          cargarProductos(); 
+          PAGINA_ACTUAL = 1;
+          cargarProductos();
         });
-
         window.addEventListener('product-import-finished', () => {
+          PAGINA_ACTUAL = 1;
           cargarProductos();
         });
 
@@ -287,18 +290,36 @@
         });
       });
 
+      function getFiltrosActuales() {
+        return {
+          estado: $("estado-select")?.value || "activos",
+          categoria: $("categoria-select")?.value || "",
+          q: ($("buscar-input")?.value || "").trim(),
+        };
+      }
+
       async function cargarProductos() {
         try {
-          const estadoFiltro = $("estado-select")?.value || "activos";
-          const res = await fetch(`/productos/list?estado=${encodeURIComponent(estadoFiltro)}`);
+          const filtros = getFiltrosActuales();
+          const params = new URLSearchParams();
+          params.set("paginated", "1");
+          params.set("page", String(PAGINA_ACTUAL));
+          params.set("per_page", String(ITEMS_POR_PAGINA));
+          params.set("estado", filtros.estado);
+          if (filtros.categoria) params.set("categoria", filtros.categoria);
+          if (filtros.q) params.set("q", filtros.q);
+
+          const res = await fetch(`/productos/list?${params.toString()}`);
           if (!res.ok) throw new Error("No se pudo cargar /productos/list");
           const data = await res.json();
 
-          PRODUCTOS = Array.isArray(data) ? data : [];
-          PRODUCTOS_FILTRADOS = PRODUCTOS;
+          PRODUCTOS_PAGINA = Array.isArray(data?.data) ? data.data : [];
+          TOTAL_REGISTROS = Number(data?.meta?.total || 0);
+          PAGINA_ACTUAL = Number(data?.meta?.current_page || 1);
+          TOTAL_PAGINAS = Math.max(1, Number(data?.meta?.last_page || 1));
 
-          cargarCategoriasUnicas(PRODUCTOS);
-          aplicarFiltros(); 
+          cargarCategoriasUnicas(Array.isArray(data?.categories) ? data.categories : []);
+          renderPagina();
         } catch (e) {
           console.error(e);
           swalError("Error", "No se pudieron cargar los productos");
@@ -356,16 +377,32 @@
       }
 
       function renderPagina() {
-        const inicio = (PAGINA_ACTUAL - 1) * ITEMS_POR_PAGINA;
-        const fin = inicio + ITEMS_POR_PAGINA;
-
-        const paginaItems = PRODUCTOS_FILTRADOS.slice(inicio, fin);
-        renderTabla(paginaItems);
+        renderTabla(PRODUCTOS_PAGINA);
+        const countEl = $("products-count");
+        if (countEl) countEl.textContent = String(TOTAL_REGISTROS);
         renderControlesPaginacion();
       }
 
+      function getPageWindow(current, total) {
+        if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+        const pages = [1];
+        let start = Math.max(2, current - 2);
+        let end = Math.min(total - 1, current + 2);
+
+        while ((end - start + 1) < 5 && start > 2) start--;
+        while ((end - start + 1) < 5 && end < total - 1) end++;
+
+        if (start > 2) pages.push("...");
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < total - 1) pages.push("...");
+        pages.push(total);
+
+        return pages;
+      }
+
       function renderControlesPaginacion() {
-        const totalPaginas = Math.ceil(PRODUCTOS_FILTRADOS.length / ITEMS_POR_PAGINA);
+        const totalPaginas = TOTAL_PAGINAS;
         const cont = $("paginacion");
 
         if (!cont) return;
@@ -384,7 +421,15 @@
           >Anterior</button>
         `;
 
-        for (let i = 1; i <= totalPaginas; i++) {
+        for (const pageItem of getPageWindow(PAGINA_ACTUAL, totalPaginas)) {
+          if (pageItem === "...") {
+            html += `
+              <span class="px-2 py-1.5 text-slate-500">...</span>
+            `;
+            continue;
+          }
+
+          const i = Number(pageItem);
           html += `
             <button
               class="px-3 py-1.5 border rounded-md ${
@@ -409,60 +454,46 @@
       }
 
       function cambiarPagina(num) {
-        const totalPaginas = Math.max(1, Math.ceil(PRODUCTOS_FILTRADOS.length / ITEMS_POR_PAGINA));
+        const totalPaginas = Math.max(1, TOTAL_PAGINAS);
         PAGINA_ACTUAL = Math.min(Math.max(1, num), totalPaginas);
-        renderPagina();
+        cargarProductos();
       }
 
-      function cargarCategoriasUnicas(data) {
+      function cargarCategoriasUnicas(categorias) {
         const select = $("categoria-select");
         if (!select) return;
 
+        const previousValue = select.value || "";
         select.innerHTML = `<option value="">Todas las categorías</option>`;
-
-        const categorias = [...new Set(data.map((p) => p.categoria).filter((c) => c))];
         categorias.forEach((cat) => {
           const opt = document.createElement("option");
           opt.value = cat;
           opt.textContent = cat;
           select.appendChild(opt);
         });
+
+        if (categorias.includes(previousValue)) {
+          select.value = previousValue;
+        } else if (previousValue) {
+          select.value = "";
+          PAGINA_ACTUAL = 1;
+          cargarProductos();
+        }
       }
 
-      function aplicarFiltros() {
-        const texto = ($("buscar-input")?.value || "").trim().toLowerCase();
-        const categoria = $("categoria-select")?.value || "";
-        const estadoFiltro = $("estado-select")?.value || "activos";
-
-        const norm = (v) => (v ?? "").toString().toLowerCase();
-        const isActivo = (p) => (p.estado === true || p.estado === 1 || p.estado === "1");
-
-        let filtrados = PRODUCTOS;
-
-        if (texto !== "") {
-          filtrados = filtrados.filter(
-            (p) =>
-              norm(p.nombre).includes(texto) ||
-              norm(p.codigo_interno).includes(texto) ||
-              norm(p.codigo_barras).includes(texto)
-          );
+      function aplicarFiltros(options = {}) {
+        if (options.immediate === true) {
+          if (filtrosDebounceTimer) clearTimeout(filtrosDebounceTimer);
+          PAGINA_ACTUAL = 1;
+          cargarProductos();
+          return;
         }
 
-        if (categoria !== "") {
-          filtrados = filtrados.filter((p) => p.categoria === categoria);
-        }
-
-        if (estadoFiltro === "activos") {
-          filtrados = filtrados.filter((p) => isActivo(p));
-        } else if (estadoFiltro === "inactivos") {
-          filtrados = filtrados.filter((p) => !isActivo(p));
-        }
-
-        PRODUCTOS_FILTRADOS = filtrados;
-        const countEl = $("products-count");
-        if (countEl) countEl.textContent = String(filtrados.length);
-        PAGINA_ACTUAL = 1;
-        renderPagina();
+        if (filtrosDebounceTimer) clearTimeout(filtrosDebounceTimer);
+        filtrosDebounceTimer = setTimeout(() => {
+          PAGINA_ACTUAL = 1;
+          cargarProductos();
+        }, 250);
       }
 
       async function handleCreateProduct(e) {

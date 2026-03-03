@@ -35,6 +35,33 @@ class ProductService
         );
     }
 
+    public function getTablePage(
+        ?bool $onlyActive = true,
+        ?string $search = null,
+        ?string $categoria = null,
+        int $page = 1,
+        int $perPage = 10
+    ): array {
+        $paginator = $this->repo->paginateForTable(
+            onlyActive: $onlyActive,
+            search: $search,
+            categoria: $categoria,
+            page: $page,
+            perPage: $perPage
+        );
+
+        return [
+            'data' => $paginator->items(),
+            'meta' => [
+                'total' => $paginator->total(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+            ],
+            'categories' => $this->repo->getDistinctCategories($onlyActive),
+        ];
+    }
+
     public function getById($id)
     {
         return $this->repo->find(

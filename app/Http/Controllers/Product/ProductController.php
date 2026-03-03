@@ -62,6 +62,23 @@ class ProductController extends Controller
         if ($estado === 'inactivos') $onlyActive = false;
         if ($estado === 'todos') $onlyActive = null;
 
+        if ($request->boolean('paginated')) {
+            $page = max(1, (int) $request->query('page', 1));
+            $perPage = max(5, min(100, (int) $request->query('per_page', 10)));
+            $search = trim((string) $request->query('q', ''));
+            $categoria = trim((string) $request->query('categoria', ''));
+
+            return response()->json(
+                $this->service->getTablePage(
+                    onlyActive: $onlyActive,
+                    search: $search !== '' ? $search : null,
+                    categoria: $categoria !== '' ? $categoria : null,
+                    page: $page,
+                    perPage: $perPage
+                )
+            );
+        }
+
         return response()->json($this->service->getAll($onlyActive));
     }
 

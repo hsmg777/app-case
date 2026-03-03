@@ -3,9 +3,38 @@
 namespace App\Repositories\Product;
 
 use App\Models\Product\Product;
+use Illuminate\Database\Eloquent\Builder;
 
 class ProductRepository
 {
+    protected function buildListQuery(
+        ?bool $onlyActive = true,
+        ?string $search = null,
+        ?string $categoria = null
+    ): Builder {
+        $query = Product::query()
+            ->select(['id', 'nombre', 'codigo_interno', 'codigo_barras', 'categoria', 'stock_minimo', 'estado'])
+            ->orderBy('nombre', 'asc');
+
+        if ($onlyActive !== null) {
+            $query->where('estado', $onlyActive);
+        }
+
+        if ($categoria !== null && $categoria !== '') {
+            $query->where('categoria', $categoria);
+        }
+
+        if ($search !== null && $search !== '') {
+            $query->where(function (Builder $subQuery) use ($search) {
+                $subQuery->where('nombre', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_interno', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_barras', 'like', '%' . $search . '%');
+            });
+        }
+
+        return $query;
+    }
+
     public function all(
         ?bool $onlyActive = true,
         bool $withPrice = true,
@@ -93,6 +122,40 @@ class ProductRepository
         }
 
         return $query->get();
+    }
+
+    public function paginateForTable(
+        ?bool $onlyActive = true,
+        ?string $search = null,
+        ?string $categoria = null,
+        int $page = 1,
+        int $perPage = 10
+    ) {
+        return $this->buildListQuery($onlyActive, $search, $categoria)
+            ->paginate(
+                perPage: $perPage,
+                columns: ['*'],
+                pageName: 'page',
+                page: $page
+            );
+    }
+
+    public function getDistinctCategories(?bool $onlyActive = true): array
+    {
+        $query = Product::query()
+            ->select('categoria')
+            ->whereNotNull('categoria')
+            ->where('categoria', '!=', '');
+
+        if ($onlyActive !== null) {
+            $query->where('estado', $onlyActive);
+        }
+
+        return $query
+            ->distinct()
+            ->orderBy('categoria', 'asc')
+            ->pluck('categoria')
+            ->all();
     }
 
     public function existsByCodigoInterno(string $codigoInterno): bool
