@@ -38,13 +38,15 @@
 
                 <form method="POST" action="{{ route('sri.config.store') }}" enctype="multipart/form-data" class="mt-6">
                     @csrf
+                    <p class="text-xs text-slate-500 mb-3">Los campos marcados como requeridos deben completarse para guardar.</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                         <div>
-                            <label class="block text-sm font-semibold text-slate-700">RUC</label>
+                            <label class="block text-sm font-semibold text-slate-700">RUC *</label>
                             <input name="ruc"
                                 value="{{ old('ruc', $clear ? '' : ($config->ruc ?? '1710177245001')) }}"
+                                required
                                 class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                                 placeholder="1710177245001" />
                             <p class="text-xs text-slate-500 mt-1">13 dígitos</p>
@@ -54,6 +56,7 @@
                             <label class="block text-sm font-semibold text-slate-700">Razón Social</label>
                             <input name="razon_social"
                                 value="{{ old('razon_social', $clear ? '' : ($config->razon_social ?? '')) }}"
+                                required
                                 class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                                 placeholder="SIMBAÑA GALARZA JOSE SALOMON" />
                         </div>
@@ -70,8 +73,9 @@
                             <label class="block text-sm font-semibold text-slate-700">Dirección Matriz</label>
                             <input name="direccion_matriz"
                                 value="{{ old('direccion_matriz', $clear ? '' : ($config->direccion_matriz ?? '')) }}"
+                                required
                                 class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                                placeholder="(Opcional)" />
+                                placeholder="Obligatorio" />
                         </div>
 
                         <div>
@@ -87,6 +91,7 @@
                                 <label class="block text-sm font-semibold text-slate-700">Establecimiento</label>
                                 <input name="codigo_establecimiento"
                                     value="{{ old('codigo_establecimiento', $clear ? '' : ($config->codigo_establecimiento ?? '001')) }}"
+                                    required
                                     class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                                     placeholder="001" />
                             </div>
@@ -94,6 +99,7 @@
                                 <label class="block text-sm font-semibold text-slate-700">Punto de emisión</label>
                                 <input name="codigo_punto_emision"
                                     value="{{ old('codigo_punto_emision', $clear ? '' : ($config->codigo_punto_emision ?? '001')) }}"
+                                    required
                                     class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                                     placeholder="001" />
                             </div>
@@ -103,6 +109,7 @@
                             <label class="block text-sm font-semibold text-slate-700">Secuencial actual</label>
                             <input type="number" min="1" name="secuencial_factura_actual"
                                 value="{{ old('secuencial_factura_actual', $clear ? '' : ($config->secuencial_factura_actual ?? 1)) }}"
+                                required
                                 class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500" />
                             <p class="text-xs text-slate-500 mt-1">Se usará para generar 001-001-000000001…</p>
                         </div>
@@ -113,7 +120,7 @@
                                 @php
                                     $amb = old('ambiente', $clear ? null : ($config->ambiente ?? 1));
                                 @endphp
-                                <select name="ambiente"
+                                <select name="ambiente" required
                                     class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500">
                                     <option value="1" {{ (string)$amb === '1' ? 'selected' : '' }}>1 - Pruebas</option>
                                     <option value="2" {{ (string)$amb === '2' ? 'selected' : '' }}>2 - Producción</option>
@@ -125,7 +132,7 @@
                                 @php
                                     $emi = old('emision', $clear ? null : ($config->emision ?? 1));
                                 @endphp
-                                <select name="emision"
+                                <select name="emision" required
                                     class="mt-1 w-full rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500">
                                     <option value="1" {{ (string)$emi === '1' ? 'selected' : '' }}>1 - Normal</option>
                                 </select>
