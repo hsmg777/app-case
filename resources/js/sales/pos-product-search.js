@@ -3,6 +3,8 @@ import { formatMoney, showSaleAlert } from './pos-utils';
 import { addOrIncrementProduct } from './pos-cart';
 
 let ALL_PRODUCTS = [];
+const INITIAL_RENDER_LIMIT = 120;
+const FILTER_RENDER_LIMIT = 200;
 
 function normalizeIvaPct(v) {
   const n = Number(v);
@@ -100,7 +102,12 @@ async function loadProducts() {
     const data = await res.json();
     ALL_PRODUCTS = Array.isArray(data) ? data : [];
 
-    renderProductList(ALL_PRODUCTS);
+    const initialItems = ALL_PRODUCTS.slice(0, INITIAL_RENDER_LIMIT);
+    renderProductList(initialItems, {
+      shownCount: initialItems.length,
+      totalCount: ALL_PRODUCTS.length,
+      hasSearch: false,
+    });
   } catch (error) {
     console.error('Error cargando productos:', error);
     list.innerHTML = '';
@@ -194,7 +201,7 @@ function buildRuleHint(rules) {
   return parts.slice(0, 2).join(' · ');
 }
 
-function renderProductList(products) {
+function renderProductList(products, meta = {}) {
   const list = document.getElementById('product_list');
   const empty = document.getElementById('product_list_empty');
   if (!list || !empty) return;
@@ -376,6 +383,17 @@ function renderProductList(products) {
 
     list.appendChild(row);
   });
+
+  const shownCount = Number(meta.shownCount || products.length);
+  const totalCount = Number(meta.totalCount || products.length);
+  if (totalCount > shownCount) {
+    const hint = document.createElement('div');
+    hint.className = 'px-3 py-2 text-[11px] text-slate-500 bg-slate-50 border-t border-slate-100';
+    hint.textContent = meta.hasSearch
+      ? `Mostrando ${shownCount} de ${totalCount} coincidencias. Escribe mas para acotar.`
+      : `Mostrando ${shownCount} de ${totalCount} productos. Usa el buscador para filtrar mas rapido.`;
+    list.appendChild(hint);
+  }
 }
 
 export function initProductSearch() {
@@ -403,7 +421,13 @@ export function initProductSearch() {
       debounce((e) => {
         const term = e.target.value.trim();
         const filtered = filterProducts(term);
-        renderProductList(filtered);
+        const limit = term ? FILTER_RENDER_LIMIT : INITIAL_RENDER_LIMIT;
+        const visible = filtered.slice(0, limit);
+        renderProductList(visible, {
+          shownCount: visible.length,
+          totalCount: filtered.length,
+          hasSearch: term.length > 0,
+        });
       }, 200)
     );
 
@@ -440,11 +464,21 @@ export function initProductSearch() {
         });
 
         input.value = '';
-        renderProductList(ALL_PRODUCTS);
+        const visible = ALL_PRODUCTS.slice(0, INITIAL_RENDER_LIMIT);
+        renderProductList(visible, {
+          shownCount: visible.length,
+          totalCount: ALL_PRODUCTS.length,
+          hasSearch: false,
+        });
 
         notifyAdded(descripcion, '(scanner)');
       } else {
-        renderProductList(matches);
+        const visible = matches.slice(0, FILTER_RENDER_LIMIT);
+        renderProductList(visible, {
+          shownCount: visible.length,
+          totalCount: matches.length,
+          hasSearch: true,
+        });
       }
     });
   }

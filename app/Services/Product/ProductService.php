@@ -4,6 +4,7 @@ namespace App\Services\Product;
 
 use App\Jobs\ExportProductsExcelJob;
 use App\Jobs\ProcessProductsImportJob;
+use App\Models\Store\Bodega;
 use App\Repositories\Product\ProductRepository;
 use App\Repositories\Product\ProductImportRepository;
 use Illuminate\Http\UploadedFile;
@@ -106,69 +107,58 @@ class ProductService
 
     public function getByBodegaWithStock(int $bodegaId)
     {
-        // 1. Traer TODOS los productos activos (o todos si se requiere) + Relación Inventario (todas las bodegas)
-        // Eliminamos el filtro 'stock_actual > 0' para traer todo.
-        // Y traemos inventario de TODAS las bodegas para hacer el global search.
+        $products = $this->repo->allForPos(onlyActive: true);
+        $products->load([
+            'inventory' => function ($query) use ($bodegaId) {
+                $query->select(['id', 'producto_id', 'bodega_id', 'percha_id', 'stock_actual'])
+                    ->where('bodega_id', $bodegaId)
+                    ->with(['percha:id,nombre,codigo']);
+            },
+        ]);
 
-        $products = $this->repo->all(onlyActive: true, withPrice: true, withTierPrices: true);
+        $bodegaNombre = Bodega::query()->where('id', $bodegaId)->value('nombre') ?? 'Bodega Actual';
 
-        // Eager load manual para optimizar o usar el query builder.
-        // Pero como $repo->all retorna Collection de modelos, cargamos relaciones:
-        $products->load(['inventory.percha', 'inventory.bodega']);
+        return $products->map(function ($product) use ($bodegaId, $bodegaNombre) {
+            $inventoryRows = $product->inventory ?? collect();
+            $totalStock = (int) $inventoryRows->sum('stock_actual');
 
-        $results = [];
+            $perchas = $inventoryRows->map(function ($inv) {
+                return [
+                    'id' => $inv->percha_id,
+                    'nombre' => $inv->percha?->nombre ?? $inv->percha?->codigo ?? 'Sin percha',
+                    'stock' => (int) $inv->stock_actual,
+                ];
+            })->values()->all();
 
-        foreach ($products as $product) {
-            $prodData = $product->toArray();
+            $price = $product->price;
+            $pricePayload = $price ? [
+                'id' => $price->id,
+                'producto_id' => $price->producto_id,
+                'precio_unitario' => $price->precio_unitario,
+                'precio_por_cantidad' => $price->precio_por_cantidad,
+                'cantidad_min' => $price->cantidad_min,
+                'cantidad_max' => $price->cantidad_max,
+                'precio_por_caja' => $price->precio_por_caja,
+                'unidades_por_caja' => $price->unidades_por_caja,
+                'moneda' => $price->moneda,
+            ] : null;
 
-            // Agrupar inventarios de ESTE producto por bodega_id
-            $invByBodega = $product->inventory->groupBy('bodega_id');
-
-            // Lista de bodegas que tienen registro de inventario
-            $existingBodegas = $invByBodega->keys()->all();
-
-            // Asegurar que la bodega actual ($bodegaId) esté en la lista a procesar,
-            // aunque no tenga inventario (para mostrarla con stock 0).
-            $bodegasToProcess = array_unique(array_merge($existingBodegas, [$bodegaId]));
-
-            foreach ($bodegasToProcess as $bId) {
-                // Filtrar inventarios para esta bodega especifica
-                $invList = $invByBodega->get($bId) ?? collect();
-
-                $totalStock = $invList->sum('stock_actual');
-
-                // Construir lista de perchas
-                $perchas = $invList->map(function ($inv) {
-                    return [
-                        'id' => $inv->percha_id,
-                        'nombre' => $inv->percha ? $inv->percha->nombre : 'Sin percha',
-                        'stock' => $inv->stock_actual,
-                    ];
-                })->values()->toArray();
-
-                // Clonamos datos del producto base
-                $row = $prodData;
-
-                // Sobrescribimos/Agregamos datos de contexto bodega
-                $row['stock_actual'] = $totalStock;
-                $row['bodega_id'] = $bId;
-                $row['perchas'] = $perchas; // Lista de perchas en ESTA bodega
-
-                // Info extra de la bodega (nombre) si existe
-                $firstInv = $invList->first();
-                // Determinar nombre bodega
-                if ($firstInv && $firstInv->bodega) {
-                    $row['bodega_nombre'] = $firstInv->bodega->nombre;
-                } else {
-                    // Intento fallback si es la local y no hay inventario
-                    $row['bodega_nombre'] = ($bId == $bodegaId) ? 'Bodega Actual' : "Bodega #$bId";
-                }
-
-                $results[] = $row;
-            }
-        }
-
-        return $results;
+            return [
+                'id' => $product->id,
+                'nombre' => $product->nombre,
+                'codigo_barras' => $product->codigo_barras,
+                'codigo_interno' => $product->codigo_interno,
+                'categoria' => $product->categoria,
+                'unidad_medida' => $product->unidad_medida,
+                'iva_porcentaje' => $product->iva_porcentaje,
+                'stock_actual' => $totalStock,
+                'bodega_id' => $bodegaId,
+                'bodega_nombre' => $bodegaNombre,
+                'perchas' => $perchas,
+                'price' => $pricePayload,
+                'product_prices' => $pricePayload ? [$pricePayload] : [],
+            ];
+        })->values()->all();
     }
 
     public function setEstado(string $id, bool $estado): void

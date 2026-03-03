@@ -35,6 +35,62 @@ class InventoryService
         return $this->repository->all();
     }
 
+    public function getTablePage(
+        ?string $search = null,
+        ?int $bodegaId = null,
+        ?string $categoria = null,
+        bool $onlyLow = false,
+        int $page = 1,
+        int $perPage = 20
+    ): array {
+        $paginator = $this->repository->paginateForTable(
+            search: $search,
+            bodegaId: $bodegaId,
+            categoria: $categoria,
+            onlyLow: $onlyLow,
+            page: $page,
+            perPage: $perPage
+        );
+
+        $rows = collect($paginator->items())->map(function ($row) {
+            return [
+                'id' => (int) $row->id,
+                'producto_id' => (int) $row->producto_id,
+                'bodega_id' => (int) $row->bodega_id,
+                'percha_id' => $row->percha_id !== null ? (int) $row->percha_id : null,
+                'stock_actual' => (int) $row->stock_actual,
+                'stock_reservado' => (int) ($row->stock_reservado ?? 0),
+                'producto' => [
+                    'id' => (int) $row->producto_id,
+                    'nombre' => $row->producto_nombre,
+                    'codigo_interno' => $row->producto_codigo_interno,
+                    'codigo_barras' => $row->producto_codigo_barras,
+                    'categoria' => $row->producto_categoria,
+                    'stock_minimo' => (int) ($row->producto_stock_minimo ?? 0),
+                ],
+                'bodega' => [
+                    'id' => (int) $row->bodega_id,
+                    'nombre' => $row->bodega_nombre,
+                ],
+                'percha' => $row->percha_id !== null ? [
+                    'id' => (int) $row->percha_id,
+                    'codigo' => $row->percha_codigo,
+                ] : null,
+            ];
+        })->all();
+
+        return [
+            'data' => $rows,
+            'meta' => [
+                'total' => $paginator->total(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+            ],
+            'filters' => $this->repository->getFilterOptions(),
+        ];
+    }
+
     public function getById($id)
     {
         return $this->repository->find($id);

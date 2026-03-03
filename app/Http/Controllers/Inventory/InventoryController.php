@@ -47,8 +47,31 @@ class InventoryController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        if ($request->boolean('paginated')) {
+            $page = max(1, (int) $request->query('page', 1));
+            $perPage = max(10, min(100, (int) $request->query('per_page', 20)));
+            $search = trim((string) $request->query('q', ''));
+            $categoria = trim((string) $request->query('categoria', ''));
+            $bodegaId = $request->query('bodega_id');
+            $bodegaId = ($bodegaId !== null && $bodegaId !== '')
+                ? (int) $bodegaId
+                : null;
+            $onlyLow = $request->boolean('only_low');
+
+            return response()->json(
+                $this->service->getTablePage(
+                    search: $search !== '' ? $search : null,
+                    bodegaId: $bodegaId,
+                    categoria: $categoria !== '' ? $categoria : null,
+                    onlyLow: $onlyLow,
+                    page: $page,
+                    perPage: $perPage
+                )
+            );
+        }
+
         return response()->json($this->service->getAll());
     }
 

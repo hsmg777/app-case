@@ -100,45 +100,64 @@
 let DATA = [];
 let seleccion = null;
 const HISTORIAL_URL = "{{ route('inventario.historial') }}";
-let FILTERED_DATA = [];
 let currentPage = 1;
 let pageSize = 20;
+let totalRecords = 0;
+let totalPages = 1;
+let filtrosDebounce = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     cargarStock();
 
     document.getElementById("buscar").addEventListener("input", aplicarFiltros);
-    document.getElementById("filter-bodega").addEventListener("change", aplicarFiltros);
-    document.getElementById("filter-categoria").addEventListener("change", aplicarFiltros);
-    document.getElementById("filter-low").addEventListener("change", aplicarFiltros);
+    document.getElementById("filter-bodega").addEventListener("change", () => aplicarFiltros({ immediate: true }));
+    document.getElementById("filter-categoria").addEventListener("change", () => aplicarFiltros({ immediate: true }));
+    document.getElementById("filter-low").addEventListener("change", () => aplicarFiltros({ immediate: true }));
     document.getElementById("page-size").addEventListener("change", (e) => {
         pageSize = Number(e.target.value) || 20;
         currentPage = 1;
-        renderTablaPaginada();
+        cargarStock();
     });
     document.getElementById("page-prev").addEventListener("click", () => {
         if (currentPage > 1) {
             currentPage -= 1;
-            renderTablaPaginada();
+            cargarStock();
         }
     });
     document.getElementById("page-next").addEventListener("click", () => {
-        const totalPages = Math.max(1, Math.ceil(FILTERED_DATA.length / pageSize));
         if (currentPage < totalPages) {
             currentPage += 1;
-            renderTablaPaginada();
+            cargarStock();
         }
     });
 });
 
 function cargarStock(preselectId = null) {
-    fetch("/inventario/list")
+    const q = (document.getElementById("buscar").value || "").trim();
+    const bodegaId = document.getElementById("filter-bodega").value || "";
+    const categoria = document.getElementById("filter-categoria").value || "";
+    const onlyLow = document.getElementById("filter-low").checked ? "1" : "0";
+
+    const params = new URLSearchParams();
+    params.set("paginated", "1");
+    params.set("page", String(currentPage));
+    params.set("per_page", String(pageSize));
+    params.set("only_low", onlyLow);
+    if (q) params.set("q", q);
+    if (bodegaId) params.set("bodega_id", bodegaId);
+    if (categoria) params.set("categoria", categoria);
+
+    fetch(`/inventario/list?${params.toString()}`)
         .then(r => r.json())
-        .then(data => {
-            DATA = Array.isArray(data) ? data : [];
-            renderBodegas(DATA);
-            renderCategorias(DATA);
-            aplicarFiltros();
+        .then(payload => {
+            DATA = Array.isArray(payload?.data) ? payload.data : [];
+            totalRecords = Number(payload?.meta?.total || 0);
+            currentPage = Number(payload?.meta?.current_page || 1);
+            totalPages = Math.max(1, Number(payload?.meta?.last_page || 1));
+
+            renderBodegas(payload?.filters?.bodegas || []);
+            renderCategorias(payload?.filters?.categorias || []);
+            renderTablaPaginada();
 
             if (preselectId) {
                 const found = DATA.find(x => Number(x.id) === Number(preselectId));
@@ -147,7 +166,8 @@ function cargarStock(preselectId = null) {
         })
         .catch(() => {
             DATA = [];
-            FILTERED_DATA = [];
+            totalRecords = 0;
+            totalPages = 1;
             currentPage = 1;
             renderTablaPaginada();
         });
@@ -156,15 +176,12 @@ function cargarStock(preselectId = null) {
 function renderBodegas(lista) {
     const sel = document.getElementById("filter-bodega");
     const selected = sel.value || "";
-    const unique = [...new Map(
-        lista.map(item => [String(item.bodega_id), item.bodega?.nombre ?? "N/D"])
-    ).entries()].sort((a, b) => a[1].localeCompare(b[1]));
 
     sel.innerHTML = '<option value="">Todas las bodegas</option>';
-    unique.forEach(([id, nombre]) => {
+    lista.forEach((item) => {
         const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = nombre;
+        opt.value = String(item.id);
+        opt.textContent = item.nombre;
         sel.appendChild(opt);
     });
 
@@ -176,12 +193,9 @@ function renderBodegas(lista) {
 function renderCategorias(lista) {
     const sel = document.getElementById("filter-categoria");
     const selected = sel.value || "";
-    const unique = [...new Set(
-        lista.map(item => String(item.producto?.categoria ?? "").trim()).filter(Boolean)
-    )].sort((a, b) => a.localeCompare(b));
 
     sel.innerHTML = '<option value="">Todas las categorias</option>';
-    unique.forEach((cat) => {
+    lista.forEach((cat) => {
         const opt = document.createElement("option");
         opt.value = cat;
         opt.textContent = cat;
@@ -193,54 +207,56 @@ function renderCategorias(lista) {
     }
 }
 
-function aplicarFiltros() {
-    const q = (document.getElementById("buscar").value || "").toLowerCase().trim();
-    const bodegaId = document.getElementById("filter-bodega").value;
-    const categoria = document.getElementById("filter-categoria").value;
-    const onlyLow = document.getElementById("filter-low").checked;
+function aplicarFiltros(options = {}) {
+    if (options.immediate === true) {
+        if (filtrosDebounce) clearTimeout(filtrosDebounce);
+        currentPage = 1;
+        cargarStock();
+        return;
+    }
 
-    FILTERED_DATA = DATA.filter(item => {
-        const nombre = String(item.producto?.nombre ?? "").toLowerCase();
-        const codigo = String(item.producto?.codigo_interno ?? "").toLowerCase();
-        const codigoBarras = String(item.producto?.codigo_barras ?? "").toLowerCase();
-        const categoriaItem = String(item.producto?.categoria ?? "");
-        const matchBusqueda = !q || nombre.includes(q) || codigo.includes(q) || codigoBarras.includes(q);
-        const matchBodega = !bodegaId || String(item.bodega_id) === String(bodegaId);
-        const matchCategoria = !categoria || categoriaItem === categoria;
-        const minimo = Number(item.producto?.stock_minimo ?? 0);
-        const esBajo = Number(item.stock_actual) < minimo;
-        const matchLow = !onlyLow || esBajo;
+    if (filtrosDebounce) clearTimeout(filtrosDebounce);
+    filtrosDebounce = setTimeout(() => {
+        currentPage = 1;
+        cargarStock();
+    }, 250);
+}
 
-        return matchBusqueda && matchBodega && matchCategoria && matchLow;
-    });
+function getPageWindow(current, total) {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
 
-    currentPage = 1;
-    renderTablaPaginada();
+    const pages = [1];
+    let start = Math.max(2, current - 2);
+    let end = Math.min(total - 1, current + 2);
+
+    while ((end - start + 1) < 5 && start > 2) start--;
+    while ((end - start + 1) < 5 && end < total - 1) end++;
+
+    if (start > 2) pages.push("...");
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push("...");
+    pages.push(total);
+
+    return pages;
 }
 
 function renderTablaPaginada() {
-    const total = FILTERED_DATA.length;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    if (currentPage > totalPages) currentPage = totalPages;
-
-    const start = (currentPage - 1) * pageSize;
-    const end = start + pageSize;
-    const pageItems = FILTERED_DATA.slice(start, end);
-
-    renderTabla(pageItems);
-    renderPaginacion(total, totalPages, start, end);
+    renderTabla(DATA);
+    renderPaginacion();
 }
 
-function renderPaginacion(total, totalPages, start, end) {
+function renderPaginacion() {
     const info = document.getElementById("stock-pagination-info");
     const prev = document.getElementById("page-prev");
     const next = document.getElementById("page-next");
     const numbers = document.getElementById("page-numbers");
 
-    if (!total) {
+    if (!totalRecords) {
         info.textContent = "0 registros";
     } else {
-        info.textContent = `Mostrando ${start + 1}-${Math.min(end, total)} de ${total} registros`;
+        const start = (currentPage - 1) * pageSize + 1;
+        const end = Math.min(currentPage * pageSize, totalRecords);
+        info.textContent = `Mostrando ${start}-${end} de ${totalRecords} registros`;
     }
 
     prev.disabled = currentPage <= 1;
@@ -248,10 +264,13 @@ function renderPaginacion(total, totalPages, start, end) {
     prev.classList.toggle("opacity-50", prev.disabled);
     next.classList.toggle("opacity-50", next.disabled);
 
-    const first = Math.max(1, currentPage - 2);
-    const last = Math.min(totalPages, currentPage + 2);
     let html = "";
-    for (let p = first; p <= last; p++) {
+    for (const pageItem of getPageWindow(currentPage, totalPages)) {
+        if (pageItem === "...") {
+            html += `<span class="px-2 py-1 text-xs text-slate-500">...</span>`;
+            continue;
+        }
+        const p = Number(pageItem);
         const active = p === currentPage
             ? "bg-blue-600 text-white border-blue-600"
             : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50";
@@ -261,8 +280,9 @@ function renderPaginacion(total, totalPages, start, end) {
 }
 
 function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
     currentPage = page;
-    renderTablaPaginada();
+    cargarStock();
 }
 
 function renderTabla(lista) {

@@ -124,6 +124,31 @@ class ProductRepository
         return $query->get();
     }
 
+    public function allForPos(?bool $onlyActive = true)
+    {
+        $query = Product::query()
+            ->select([
+                'id',
+                'nombre',
+                'codigo_barras',
+                'codigo_interno',
+                'categoria',
+                'unidad_medida',
+                'iva_porcentaje',
+                'estado',
+            ])
+            ->with([
+                'price:id,producto_id,precio_unitario,precio_por_cantidad,cantidad_min,cantidad_max,precio_por_caja,unidades_por_caja,moneda',
+            ])
+            ->orderBy('nombre', 'asc');
+
+        if ($onlyActive !== null) {
+            $query->where('estado', $onlyActive);
+        }
+
+        return $query->get();
+    }
+
     public function paginateForTable(
         ?bool $onlyActive = true,
         ?string $search = null,
