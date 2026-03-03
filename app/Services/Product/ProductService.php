@@ -105,9 +105,17 @@ class ProductService
         return $this->repo->delete($product);
     }
 
-    public function getByBodegaWithStock(int $bodegaId)
+    public function getByBodegaWithStock(
+        int $bodegaId,
+        ?string $search = null,
+        int $limit = 200
+    )
     {
-        $products = $this->repo->allForPos(onlyActive: true);
+        $products = $this->repo->allForPos(
+            onlyActive: true,
+            search: $search,
+            limit: $limit
+        );
         $products->load([
             'inventory' => function ($query) use ($bodegaId) {
                 $query->select(['id', 'producto_id', 'bodega_id', 'percha_id', 'stock_actual'])

@@ -124,7 +124,11 @@ class ProductRepository
         return $query->get();
     }
 
-    public function allForPos(?bool $onlyActive = true)
+    public function allForPos(
+        ?bool $onlyActive = true,
+        ?string $search = null,
+        int $limit = 200
+    )
     {
         $query = Product::query()
             ->select([
@@ -146,7 +150,15 @@ class ProductRepository
             $query->where('estado', $onlyActive);
         }
 
-        return $query->get();
+        if ($search !== null && $search !== '') {
+            $query->where(function (Builder $subQuery) use ($search) {
+                $subQuery->where('nombre', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_interno', 'like', '%' . $search . '%')
+                    ->orWhere('codigo_barras', 'like', '%' . $search . '%');
+            });
+        }
+
+        return $query->limit(max(1, min($limit, 500)))->get();
     }
 
     public function paginateForTable(
