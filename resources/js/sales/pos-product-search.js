@@ -3,8 +3,8 @@ import { formatMoney, showSaleAlert } from './pos-utils';
 import { addOrIncrementProduct } from './pos-cart';
 
 let ALL_PRODUCTS = [];
-const INITIAL_RENDER_LIMIT = 120;
-const FILTER_RENDER_LIMIT = 200;
+const POS_FETCH_LIMIT = 200;
+let lastFetchSeq = 0;
 
 function normalizeIvaPct(v) {
   const n = Number(v);
@@ -40,12 +40,12 @@ function notifyAdded(descripcion, extra = '') {
   }
 }
 
-async function loadProducts() {
+async function loadProducts(searchTerm = '') {
   const list = document.getElementById('product_list');
   const empty = document.getElementById('product_list_empty');
   const bodegaSelect = document.getElementById('bodega_id');
 
-  if (!list || !empty) return;
+  if (!list || !empty) return [];
 
   const bodegaId = bodegaSelect ? bodegaSelect.value : '';
 
@@ -58,7 +58,7 @@ async function loadProducts() {
         Selecciona una bodega para ver los productos con stock disponible.
       </p>
     `;
-    return;
+    return [];
   }
 
   const routes = window.SALES_ROUTES || {};
@@ -76,11 +76,15 @@ async function loadProducts() {
       </p>
     `;
     list.innerHTML = '';
-    return;
+    return [];
   }
 
   const separator = url.includes('?') ? '&' : '?';
-  url = `${url}${separator}bodega_id=${encodeURIComponent(bodegaId)}`;
+  const params = new URLSearchParams();
+  params.set('bodega_id', String(bodegaId));
+  params.set('limit', String(POS_FETCH_LIMIT));
+  if (searchTerm) params.set('q', searchTerm);
+  url = `${url}${separator}${params.toString()}`;
 
   empty.classList.remove('hidden');
   empty.innerHTML = `
@@ -91,6 +95,7 @@ async function loadProducts() {
   list.innerHTML = '';
 
   try {
+    const fetchSeq = ++lastFetchSeq;
     console.log('Cargando productos desde:', url);
 
     const res = await fetch(url, {
@@ -100,14 +105,14 @@ async function loadProducts() {
     if (!res.ok) throw new Error('Error al cargar productos');
 
     const data = await res.json();
+    if (fetchSeq !== lastFetchSeq) return [];
     ALL_PRODUCTS = Array.isArray(data) ? data : [];
-
-    const initialItems = ALL_PRODUCTS.slice(0, INITIAL_RENDER_LIMIT);
-    renderProductList(initialItems, {
-      shownCount: initialItems.length,
+    renderProductList(ALL_PRODUCTS, {
+      shownCount: ALL_PRODUCTS.length,
       totalCount: ALL_PRODUCTS.length,
-      hasSearch: false,
+      hasSearch: searchTerm.length > 0,
     });
+    return ALL_PRODUCTS;
   } catch (error) {
     console.error('Error cargando productos:', error);
     list.innerHTML = '';
@@ -117,21 +122,8 @@ async function loadProducts() {
         Ocurrió un error al cargar los productos.
       </p>
     `;
+    return [];
   }
-}
-
-function filterProducts(term) {
-  if (!term) return ALL_PRODUCTS;
-
-  const q = term.toLowerCase();
-
-  return ALL_PRODUCTS.filter((p) => {
-    const nombre = (p.nombre || '').toLowerCase();
-    const cb = (p.codigo_barras || '').toLowerCase();
-    const ci = (p.codigo_interno || '').toLowerCase();
-
-    return nombre.includes(q) || cb.includes(q) || ci.includes(q);
-  });
 }
 
 function getUnitPrice(p) {
@@ -411,7 +403,7 @@ export function initProductSearch() {
   if (bodegaSelect && bodegaSelect.tagName === 'SELECT') {
     bodegaSelect.addEventListener('change', () => {
       if (input) input.value = '';
-      loadProducts();
+      loadProducts('');
     });
   }
 
@@ -420,27 +412,20 @@ export function initProductSearch() {
       'input',
       debounce((e) => {
         const term = e.target.value.trim();
-        const filtered = filterProducts(term);
-        const limit = term ? FILTER_RENDER_LIMIT : INITIAL_RENDER_LIMIT;
-        const visible = filtered.slice(0, limit);
-        renderProductList(visible, {
-          shownCount: visible.length,
-          totalCount: filtered.length,
-          hasSearch: term.length > 0,
-        });
+        loadProducts(term);
       }, 200)
     );
 
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
 
       e.preventDefault();
       const term = input.value.trim();
       if (!term) return;
 
-      const matches = filterProducts(term);
+      const matches = await loadProducts(term);
 
-      if (matches.length === 1) {
+      if (Array.isArray(matches) && matches.length === 1) {
         const p = matches[0];
 
         const productoId = Number(p.id);
@@ -464,18 +449,12 @@ export function initProductSearch() {
         });
 
         input.value = '';
-        const visible = ALL_PRODUCTS.slice(0, INITIAL_RENDER_LIMIT);
-        renderProductList(visible, {
-          shownCount: visible.length,
-          totalCount: ALL_PRODUCTS.length,
-          hasSearch: false,
-        });
+        loadProducts('');
 
         notifyAdded(descripcion, '(scanner)');
-      } else {
-        const visible = matches.slice(0, FILTER_RENDER_LIMIT);
-        renderProductList(visible, {
-          shownCount: visible.length,
+      } else if (Array.isArray(matches)) {
+        renderProductList(matches, {
+          shownCount: matches.length,
           totalCount: matches.length,
           hasSearch: true,
         });

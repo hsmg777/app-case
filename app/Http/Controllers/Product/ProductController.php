@@ -51,8 +51,15 @@ class ProductController extends Controller
         $bodegaId = $request->query('bodega_id');
 
         if ($bodegaId) {
+            $search = trim((string) $request->query('q', ''));
+            $limit = max(1, min(500, (int) $request->query('limit', 200)));
+
             return response()->json(
-                $this->service->getByBodegaWithStock((int) $bodegaId)
+                $this->service->getByBodegaWithStock(
+                    (int) $bodegaId,
+                    $search !== '' ? $search : null,
+                    $limit
+                )
             );
         }
 
