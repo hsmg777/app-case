@@ -15,6 +15,9 @@ class ProductRepository
     ): Builder {
         $query = Product::query()
             ->select(['id', 'nombre', 'codigo_interno', 'codigo_barras', 'categoria', 'stock_minimo', 'estado'])
+            ->with([
+                'price:id,producto_id,precio_unitario,precio_por_cantidad,cantidad_min,cantidad_max,precio_por_caja,unidades_por_caja,moneda',
+            ])
             ->orderBy('nombre', 'asc');
 
         if ($onlyActive !== null) {

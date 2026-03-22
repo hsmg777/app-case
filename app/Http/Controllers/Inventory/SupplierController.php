@@ -42,15 +42,16 @@ class SupplierController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'nombre'        => 'required|string|max:255',
-            'ruc'           => 'nullable|string|max:13',
-            'telefono'      => 'nullable|string|max:50',
-            'email'         => 'nullable|email|max:255',
-            'direccion'     => 'nullable|string|max:255',
-            'contacto'      => 'nullable|string|max:255',
-            'activo'        => 'nullable|boolean',
-            'observaciones' => 'nullable|string|max:1000',
+            'nombre'    => 'required|string|max:255',
+            'ruc'       => 'nullable|string|max:13',
+            'telefono'  => 'nullable|string|max:50',
+            'email'     => 'nullable|email|max:255',
+            'direccion' => 'nullable|string|max:255',
+            'contacto'  => 'nullable|string|max:255', 
+            'activo'    => 'nullable|boolean',
         ]);
+
+        $data['activo'] = $data['activo'] ?? true;
 
         $supplier = $this->service->create($data);
 
@@ -60,14 +61,13 @@ class SupplierController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $data = $request->validate([
-            'nombre'        => 'sometimes|required|string|max:255',
-            'ruc'           => 'nullable|string|max:13',
-            'telefono'      => 'nullable|string|max:50',
-            'email'         => 'nullable|email|max:255',
-            'direccion'     => 'nullable|string|max:255',
-            'contacto'      => 'nullable|string|max:255',
-            'activo'        => 'nullable|boolean',
-            'observaciones' => 'nullable|string|max:1000',
+            'nombre'    => 'sometimes|required|string|max:255',
+            'ruc'       => 'nullable|string|max:13',
+            'telefono'  => 'nullable|string|max:50',
+            'email'     => 'nullable|email|max:255',
+            'direccion' => 'nullable|string|max:255',
+            'contacto'  => 'nullable|string|max:255', 
+            'activo'    => 'nullable|boolean',
         ]);
 
         $supplier = $this->service->update($id, $data);

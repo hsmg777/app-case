@@ -49,6 +49,26 @@ class ProductPriceController extends Controller
         return response()->json($this->service->create($data), 201);
     }
 
+    public function bulkUpsert(Request $request)
+    {
+        $data = $request->validate([
+            'producto_ids' => 'required|array|min:1',
+            'producto_ids.*' => 'required|integer|exists:products,id',
+
+            'precio_unitario' => 'required|numeric|min:0',
+            'moneda' => 'nullable|string|max:10',
+
+            'precio_por_cantidad' => 'nullable|numeric|min:0',
+            'cantidad_min' => 'nullable|integer|min:1',
+            'cantidad_max' => 'nullable|integer|gte:cantidad_min',
+
+            'precio_por_caja' => 'nullable|numeric|min:0',
+            'unidades_por_caja' => 'nullable|integer|min:1',
+        ]);
+
+        return response()->json($this->service->bulkUpsert($data));
+    }
+
     public function update(Request $request, $id)
     {
         $data = $request->validate([

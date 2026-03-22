@@ -100,14 +100,52 @@
                 </div>
             </section>
 
+            <section
+                id="bulk-prices-toolbar"
+                class="hidden bg-blue-50 border border-blue-100 rounded-xl shadow-sm px-4 py-3"
+            >
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div class="text-sm text-blue-900">
+                        <span id="bulk-selected-count" class="font-semibold">0</span>
+                        productos seleccionados
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <button
+                            id="btn-clear-product-selection"
+                            type="button"
+                            class="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 font-medium hover:bg-slate-50"
+                        >
+                            Limpiar selección
+                        </button>
+                        <button
+                            id="btn-open-bulk-prices"
+                            type="button"
+                            class="px-4 py-2 rounded-lg bg-blue-700 text-white font-semibold hover:bg-blue-800"
+                        >
+                            Editar precios seleccionados
+                        </button>
+                    </div>
+                </div>
+            </section>
+
             <section class="bg-white shadow-sm rounded-xl overflow-hidden border border-slate-200">
                 <div class="overflow-x-auto">
                     <table class="min-w-full">
                         <thead class="bg-slate-100">
                             <tr>
+                                <th class="px-5 py-3 text-center text-sm font-semibold text-slate-700 w-16">
+                                    <input
+                                        id="select-all-current-products"
+                                        type="checkbox"
+                                        class="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                                        title="Seleccionar productos de esta página"
+                                    >
+                                </th>
                                 <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Nombre</th>
                                 <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Código interno</th>
                                 <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Categoría</th>
+                                <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Precio</th>
                                 <th class="px-5 py-3 text-left text-sm font-semibold text-slate-700">Stock mínimo</th>
                                 <th class="px-5 py-3 text-center text-sm font-semibold text-slate-700">Acciones</th>
                             </tr>
@@ -124,6 +162,7 @@
 
     @include('inventario.productos.modals.create')
     @include('inventario.productos.modals.edit')
+    @include('inventario.productos.modals.bulk-prices')
 
     <script>
     (() => {
@@ -176,6 +215,7 @@
       let TOTAL_PAGINAS = 1;
       let TOTAL_REGISTROS = 0;
       let filtrosDebounceTimer = null;
+      const SELECTED_PRODUCT_IDS = new Set();
 
       function openCreateModal() {
         const el = $("modal-create");
@@ -191,6 +231,92 @@
         el.classList.add("hidden");
         el.classList.remove("flex");
         el.style.display = "none";
+      }
+
+      function openBulkPricesModal() {
+        const modal = $("modal-bulk-prices");
+        if (!modal) return;
+
+        const selectedIds = Array.from(SELECTED_PRODUCT_IDS);
+        if (!selectedIds.length) {
+          swalError("Sin selección", "Selecciona al menos un producto para cambiar precios.");
+          return;
+        }
+
+        window.resetBulkPriceFormState?.();
+        updateBulkSelectedCount();
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+        modal.style.display = "flex";
+      }
+
+      function closeBulkPricesModal() {
+        const modal = $("modal-bulk-prices");
+        if (!modal) return;
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+        modal.style.display = "none";
+      }
+
+      function updateBulkSelectedCount() {
+        const count = SELECTED_PRODUCT_IDS.size;
+        const summary = $("bulk-selected-count");
+        const modalCount = $("bulk-price-selected-count");
+        if (summary) summary.textContent = String(count);
+        if (modalCount) modalCount.textContent = String(count);
+      }
+
+      function refreshSelectAllCheckbox() {
+        const selectAll = $("select-all-current-products");
+        if (!selectAll) return;
+
+        const pageIds = PRODUCTOS_PAGINA.map((product) => Number(product.id)).filter(Boolean);
+        const selectedOnPage = pageIds.filter((id) => SELECTED_PRODUCT_IDS.has(id)).length;
+
+        selectAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
+        selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
+      }
+
+      function syncBulkSelectionUI() {
+        const toolbar = $("bulk-prices-toolbar");
+        updateBulkSelectedCount();
+        refreshSelectAllCheckbox();
+
+        if (!toolbar) return;
+        toolbar.classList.toggle("hidden", SELECTED_PRODUCT_IDS.size === 0);
+      }
+
+      function clearSelectedProducts() {
+        SELECTED_PRODUCT_IDS.clear();
+        renderPagina();
+      }
+
+      function toggleProductSelection(productId, checked) {
+        const id = Number(productId);
+        if (!Number.isFinite(id) || id <= 0) return;
+
+        if (checked) {
+          SELECTED_PRODUCT_IDS.add(id);
+        } else {
+          SELECTED_PRODUCT_IDS.delete(id);
+        }
+
+        syncBulkSelectionUI();
+      }
+
+      function toggleCurrentPageSelection(checked) {
+        PRODUCTOS_PAGINA.forEach((product) => {
+          const id = Number(product.id);
+          if (!Number.isFinite(id) || id <= 0) return;
+
+          if (checked) {
+            SELECTED_PRODUCT_IDS.add(id);
+          } else {
+            SELECTED_PRODUCT_IDS.delete(id);
+          }
+        });
+
+        renderPagina();
       }
 
       function bindBarcodeFocusFlow() {
@@ -276,6 +402,20 @@
 
         $("form-create-product")?.addEventListener("submit", handleCreateProduct);
         $("form-edit")?.addEventListener("submit", handleEditProduct);
+        $("form-bulk-prices")?.addEventListener("submit", handleBulkPricesSubmit);
+        $("btn-open-bulk-prices")?.addEventListener("click", openBulkPricesModal);
+        $("btn-clear-product-selection")?.addEventListener("click", clearSelectedProducts);
+        $("select-all-current-products")?.addEventListener("change", (ev) => {
+          toggleCurrentPageSelection(!!ev.target.checked);
+        });
+
+        document.querySelectorAll('[data-bulk-price-close]').forEach((btn) => {
+          btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            closeBulkPricesModal();
+          });
+        });
 
         document.querySelectorAll('[data-create-close]').forEach((btn) => {
           btn.addEventListener('click', (ev) => {
@@ -287,6 +427,7 @@
 
         document.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') closeCreateModal();
+          if (e.key === 'Escape') closeBulkPricesModal();
         });
       });
 
@@ -333,11 +474,12 @@
         if (!lista.length) {
           $("tabla-productos").innerHTML = `
             <tr>
-              <td colspan="5" class="px-5 py-8 text-center text-sm text-slate-500">
+              <td colspan="7" class="px-5 py-8 text-center text-sm text-slate-500">
                 No hay productos para los filtros seleccionados.
               </td>
             </tr>
           `;
+          syncBulkSelectionUI();
           return;
         }
 
@@ -350,12 +492,22 @@
           const confirmText = activo
             ? "¿Desactivar este producto? No se borrará el historial."
             : "¿Activar este producto?";
+          const precioUnitario = Number(p?.price?.precio_unitario ?? 0);
 
           rows += `
             <tr class="border-b border-slate-100 ${activo ? "" : "bg-slate-50/70"}">
+              <td class="px-5 py-3 text-center">
+                <input
+                  type="checkbox"
+                  class="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                  ${SELECTED_PRODUCT_IDS.has(Number(p.id)) ? "checked" : ""}
+                  onchange="toggleProductSelection(${p.id}, this.checked)"
+                >
+              </td>
               <td class="px-5 py-3 text-slate-800 font-medium">${p.nombre ?? "-"}</td>
               <td class="px-5 py-3 text-slate-700">${p.codigo_interno ?? "-"}</td>
               <td class="px-5 py-3 text-slate-700">${p.categoria ?? "-"}</td>
+              <td class="px-5 py-3 text-slate-700 font-medium">$ ${precioUnitario.toFixed(2)}</td>
               <td class="px-5 py-3 text-slate-700">${p.stock_minimo ?? 0}</td>
               <td class="px-5 py-3">
                 <div class="flex items-center justify-center gap-2">
@@ -374,6 +526,7 @@
         });
 
         $("tabla-productos").innerHTML = rows;
+        syncBulkSelectionUI();
       }
 
       function renderPagina() {
@@ -685,6 +838,55 @@
         }
       }
 
+      async function handleBulkPricesSubmit(e) {
+        e.preventDefault();
+
+        const selectedIds = Array.from(SELECTED_PRODUCT_IDS);
+        if (!selectedIds.length) {
+          swalError("Sin selección", "Selecciona al menos un producto para cambiar precios.");
+          return;
+        }
+
+        const fd = new FormData(e.target);
+        const payload = {
+          producto_ids: selectedIds,
+          precio_unitario: toFloat(fd.get("precio_unitario")),
+          moneda: fd.get("moneda") || "USD",
+          precio_por_cantidad: toFloat(fd.get("precio_por_cantidad")),
+          cantidad_min: toInt(fd.get("cantidad_min")),
+          cantidad_max: toInt(fd.get("cantidad_max")),
+          precio_por_caja: toFloat(fd.get("precio_por_caja")),
+          unidades_por_caja: toInt(fd.get("unidades_por_caja")),
+        };
+
+        try {
+          const res = await swalLoading(
+            fetch("/producto-precios/bulk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": CSRF_TOKEN },
+              body: JSON.stringify(payload),
+            }),
+            "Aplicando precios masivos…"
+          );
+
+          const data = await readJsonSafe(res);
+          if (!res.ok) {
+            throw new Error(data?.message || "No se pudieron actualizar los precios.");
+          }
+
+          closeBulkPricesModal();
+          clearSelectedProducts();
+          await swalSuccess(
+            "Precios actualizados",
+            `${data?.products_count || selectedIds.length} productos actualizados correctamente`
+          );
+          cargarProductos();
+        } catch (err) {
+          console.error(err);
+          swalError("Error", err.message || "No se pudieron actualizar los precios.");
+        }
+      }
+
       async function cambiarEstadoProducto(id, nuevoEstado, confirmText) {
         const ok = await swalConfirm(confirmText);
         if (!ok) return;
@@ -769,6 +971,10 @@
 
       window.openEditModal = openEditModal;
       window.closeEditModal = closeEditModal;
+      window.openBulkPricesModal = openBulkPricesModal;
+      window.closeBulkPricesModal = closeBulkPricesModal;
+      window.toggleProductSelection = toggleProductSelection;
+      window.toggleCurrentPageSelection = toggleCurrentPageSelection;
 
       window.cambiarEstadoProducto = cambiarEstadoProducto;
       window.exportarProductosExcel = exportarProductosExcel;
