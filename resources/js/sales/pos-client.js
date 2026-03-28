@@ -185,7 +185,7 @@ function filterAndRenderClients(term) {
 /**
  * Carga los emails del cliente para el select de correo.
  */
-async function loadClientEmails(clientId) {
+async function loadClientEmails(clientId, preferredEmailId = null) {
   const select  = document.getElementById('cliente_email');
   const resumen = document.getElementById('cliente_email_resumen');
 
@@ -265,17 +265,23 @@ async function loadClientEmails(clientId) {
     }
 
     let first = null;
+    let preferred = null;
 
     emails.forEach(({ id, email }) => {
       const opt = new Option(email, String(id));
       opt.dataset.email = email; 
       select.add(opt);
       if (!first) first = { id, email };
+      if (preferredEmailId != null && String(id) === String(preferredEmailId)) {
+        preferred = { id, email };
+      }
     });
 
-    if (first) {
-      select.value = String(first.id);
-      if (resumen) resumen.textContent = `Enviar factura a: ${first.email}`;
+    const selected = preferred || first;
+
+    if (selected) {
+      select.value = String(selected.id);
+      if (resumen) resumen.textContent = `Enviar factura a: ${selected.email}`;
       select.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
       if (resumen) resumen.textContent = 'Sin correo seleccionado';
@@ -321,6 +327,52 @@ function getFilteredClients(term) {
   });
 }
 
+async function searchClientsRemotely(term) {
+  const normalized = String(term || '').trim();
+  if (!normalized) return [];
+
+  let indexUrl = '/clients';
+
+  if (window.SALES_ROUTES?.clientIndex) {
+    indexUrl = window.SALES_ROUTES.clientIndex;
+  }
+
+  try {
+    const url = new URL(indexUrl, window.location.origin);
+    url.searchParams.set('search', normalized);
+    url.searchParams.set('per_page', '15');
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'same-origin',
+    });
+
+    if (!res.ok) return [];
+
+    const json = await res.json();
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json?.data)) return json.data;
+    return [];
+  } catch (error) {
+    console.error('[POS] Error consultando clientes en servidor:', error);
+    return [];
+  }
+}
+
+function findExactClientInList(term, clients = []) {
+  const normalized = normalizeClientTerm(term);
+  if (!normalized || !Array.isArray(clients)) return null;
+
+  return clients.find((client) => {
+    const ident = normalizeClientTerm(client?.identificacion || '');
+    const name = normalizeClientTerm(client?.business || client?.nombre || '');
+    return ident === normalized || name === normalized;
+  }) || null;
+}
+
 function applyClientSelection(client) {
   if (!client) return;
 
@@ -345,6 +397,53 @@ function applyClientSelection(client) {
   }
 
   if (quickSearch) quickSearch.value = '';
+}
+
+export function clearSelectedClient() {
+  setConsumidorFinalUI();
+
+  const quickSearch = document.getElementById('client_quick_search');
+  if (quickSearch) quickSearch.value = '';
+}
+
+export function getSelectedClientSnapshot() {
+  const inputId = document.getElementById('client_id');
+  const inputName = document.getElementById('cliente_nombre');
+  const identEl = document.getElementById('cliente_identificacion');
+  const emailSelect = document.getElementById('cliente_email');
+  const selectedOpt = emailSelect?.selectedOptions?.[0] || null;
+
+  const clientId = inputId?.value ? String(inputId.value).trim() : '';
+  const ident = identEl?.textContent?.trim() || '';
+
+  return {
+    clientId: clientId || null,
+    name: inputName?.textContent?.trim() || '',
+    ident,
+    clientEmailId: emailSelect?.value ? String(emailSelect.value) : null,
+    clientEmail: selectedOpt?.dataset?.email || selectedOpt?.text || null,
+    isConsumidorFinal: !clientId || isConsumidorFinalByIdent(ident),
+  };
+}
+
+export async function restoreClientSelection(snapshot = null) {
+  const inputId = document.getElementById('client_id');
+  const inputName = document.getElementById('cliente_nombre');
+  const identEl = document.getElementById('cliente_identificacion');
+  const quickSearch = document.getElementById('client_quick_search');
+
+  if (quickSearch) quickSearch.value = '';
+
+  if (!snapshot || snapshot.isConsumidorFinal || !snapshot.clientId) {
+    clearSelectedClient();
+    return;
+  }
+
+  if (inputId) inputId.value = String(snapshot.clientId);
+  if (inputName) inputName.textContent = snapshot.name || 'Cliente seleccionado';
+  if (identEl) identEl.textContent = snapshot.ident || 'Sin identificación';
+
+  await loadClientEmails(snapshot.clientId, snapshot.clientEmailId || null);
 }
 
 function inferTipoIdentificacion(value) {
@@ -707,6 +806,31 @@ export function initClientSelector() {
 
         if (result.type === 'multiple' && Array.isArray(result.clients)) {
           openSearchModalWithResults(term, result.clients);
+          return;
+        }
+
+        const remoteClients = await searchClientsRemotely(term);
+        const remoteExact = findExactClientInList(term, remoteClients);
+
+        if (remoteExact) {
+          if (!allClients.some((client) => String(client?.id) === String(remoteExact?.id))) {
+            allClients.push(remoteExact);
+          }
+          applyClientSelection(remoteExact);
+          return;
+        }
+
+        if (remoteClients.length === 1) {
+          const [singleRemote] = remoteClients;
+          if (!allClients.some((client) => String(client?.id) === String(singleRemote?.id))) {
+            allClients.push(singleRemote);
+          }
+          applyClientSelection(singleRemote);
+          return;
+        }
+
+        if (remoteClients.length > 1) {
+          openSearchModalWithResults(term, remoteClients);
           return;
         }
 

@@ -22,14 +22,14 @@
 
 
     <div class="py-4">
-        <div class="max-w-7xl mx-auto px-3 lg:px-4">
+        <div class="w-full px-2 sm:px-3 lg:px-4 2xl:px-2">
 
-            {{-- LAYOUT POS: DOS COLUMNAS --}}
-            {{-- Aumentamos min-h para dar mas espacio vertical --}}
-            <div class="flex flex-col lg:flex-row gap-3 h-[calc(100vh-4rem)] min-h-[850px]">
+            {{-- LAYOUT POS --}}
+            {{-- En xl mantenemos el ancho util actual de productos y carrito, y usamos el espacio extra para una tercera columna. --}}
+            <div class="flex flex-col xl:flex-row gap-3 xl:h-[calc(100vh-4rem)] min-h-[850px]">
 
-                {{-- =============== COL IZQUIERDA: PRODUCTOS (HACER MAS ANGOSTA) =============== --}}
-                <section class="flex-[0.9] flex flex-col gap-4 min-h-0">
+                {{-- =============== COL IZQUIERDA: PRODUCTOS =============== --}}
+                <section class="flex-[0.9] flex flex-col gap-4 min-h-0 xl:w-[30rem] xl:flex-none">
 
                     {{-- HEADERS OCULTOS (Inputs necesarios para JS) --}}
                     <div class="hidden">
@@ -104,8 +104,8 @@
                     </div>
                 </section>
 
-                <section class="flex-[1.4] flex flex-col gap-4">
-                                        {{-- CLIENTE (Movido aquí) --}}
+                <section class="flex-[1.4] flex flex-col gap-4 min-h-0 xl:w-[47rem] xl:flex-none">
+                    {{-- CLIENTE --}}
                     <div class="bg-white border border-slate-200 rounded-3xl shadow-lg overflow-hidden shrink-0">
                         <div class="px-3 py-2 bg-slate-100 space-y-2">
                             <div class="flex items-center justify-between gap-3">
@@ -206,7 +206,14 @@
                             </div>
                         </div>
 
-                        <div class="px-4 py-2 border-t border-slate-100 bg-white flex justify-end">
+                        <div class="px-4 py-2 border-t border-slate-100 bg-white flex justify-end gap-2">
+                            <button
+                                type="button"
+                                id="btn-save-temp-sale"
+                                class="inline-flex justify-center items-center px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg font-semibold text-[11px] text-amber-700 uppercase tracking-wide hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-300"
+                            >
+                                Guardar temporal
+                            </button>
                             <button
                                 type="button"
                                 id="btn-clear-cart"
@@ -383,6 +390,35 @@
                                 </div>
                             </details>
                         </footer>
+                    </div>
+                </section>
+
+                <section class="hidden xl:flex flex-1 min-w-[18rem] min-h-0">
+                    <div class="flex-1 flex flex-col gap-3 min-h-0">
+                        <div class="flex-1 min-h-[200px] bg-white border border-slate-200 rounded-3xl shadow-lg overflow-hidden">
+                            <div class="h-full bg-slate-50/40"></div>
+                        </div>
+                        <div class="flex-1 min-h-[200px] bg-white border border-slate-200 rounded-3xl shadow-lg overflow-hidden">
+                            <div class="h-full flex flex-col">
+                                <header class="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="text-[11px] text-slate-500 uppercase font-semibold">Facturas temporales</p>
+                                        <p class="text-[11px] text-slate-400">Máximo 3 por esta caja y bodega</p>
+                                    </div>
+                                </header>
+
+                                <div class="flex-1 min-h-0 p-3 bg-slate-50/40 overflow-y-auto">
+                                    <div id="temp-sales-list" class="space-y-3"></div>
+
+                                    <div
+                                        id="temp-sales-empty"
+                                        class="h-full min-h-[140px] flex items-center justify-center text-center px-4 text-[12px] text-slate-400"
+                                    >
+                                        No hay facturas temporales guardadas. Cuando estaciones una venta aparecerá aquí para recuperarla luego.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </div>

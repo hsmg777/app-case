@@ -137,6 +137,53 @@ export function getCart() {
   return cart;
 }
 
+export function getCartSnapshot() {
+  return cart.map((item) => ({
+    ...item,
+    price_rules: Array.isArray(item.price_rules)
+      ? item.price_rules.map((rule) => ({ ...rule }))
+      : [],
+  }));
+}
+
+function normalizeCartSnapshotItem(raw) {
+  const productoId = parseInt(raw?.producto_id, 10);
+  const descripcion = String(raw?.descripcion || '').trim();
+  const cantidad = Math.max(1, parseInt(raw?.cantidad, 10) || 1);
+  const precioUnitario = Number(raw?.precio_unitario);
+
+  if (!productoId || !descripcion || !Number.isFinite(precioUnitario)) {
+    return null;
+  }
+
+  const baseItem = {
+    producto_id: productoId,
+    descripcion,
+    cantidad,
+    precio_unitario: precioUnitario,
+    price_rules: Array.isArray(raw?.price_rules)
+      ? raw.price_rules.map((rule) => ({ ...rule }))
+      : [],
+    percha_id: raw?.percha_id ?? null,
+    descuento_pct: clampPct(raw?.descuento_pct),
+    iva_porcentaje: normalizeIvaPct(raw?.iva_porcentaje ?? 15),
+  };
+
+  return {
+    ...baseItem,
+    ...calcLine(baseItem),
+  };
+}
+
+export function replaceCart(items = []) {
+  cart = Array.isArray(items)
+    ? items.map((item) => normalizeCartSnapshotItem(item)).filter(Boolean)
+    : [];
+
+  renderCart();
+  recalcSummary();
+}
+
 export function clearCart() {
   cart = [];
   renderCart();
